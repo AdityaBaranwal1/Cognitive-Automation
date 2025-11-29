@@ -279,6 +279,16 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     if (savedPluelyApiEnabled !== null) {
       setPluelyApiEnabledState(savedPluelyApiEnabled === "true");
     }
+
+    // Load workflows
+    const savedWorkflows = safeLocalStorage.getItem(STORAGE_KEYS.WORKFLOWS);
+    if (savedWorkflows) {
+      try {
+        setWorkflows(JSON.parse(savedWorkflows));
+      } catch (e) {
+        console.error("Failed to parse workflows", e);
+      }
+    }
   };
 
   const updateCursor = (type: CursorType | undefined) => {
@@ -417,7 +427,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         e.key === STORAGE_KEYS.SYSTEM_PROMPT ||
         e.key === STORAGE_KEYS.SCREENSHOT_CONFIG ||
         e.key === STORAGE_KEYS.CUSTOMIZABLE ||
-        e.key === STORAGE_KEYS.PROVIDER_CONFIGS
+        e.key === STORAGE_KEYS.PROVIDER_CONFIGS ||
+        e.key === STORAGE_KEYS.WORKFLOWS
       ) {
         loadData();
       }
@@ -562,18 +573,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   // Workflow State
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
-
-  // Load workflows
-  useEffect(() => {
-    const savedWorkflows = safeLocalStorage.getItem(STORAGE_KEYS.WORKFLOWS);
-    if (savedWorkflows) {
-      try {
-        setWorkflows(JSON.parse(savedWorkflows));
-      } catch (e) {
-        console.error("Failed to parse workflows", e);
-      }
-    }
-  }, []);
 
   // Sync workflows to shortcuts
   useEffect(() => {

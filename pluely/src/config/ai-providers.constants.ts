@@ -1,4 +1,6 @@
-export const AI_PROVIDERS = [
+import { TYPE_PROVIDER } from "@/types/provider.type";
+
+export const AI_PROVIDERS: TYPE_PROVIDER[] = [
   {
     id: "openai",
     curl: `curl https://api.openai.com/v1/chat/completions \\

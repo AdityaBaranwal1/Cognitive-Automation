@@ -44,7 +44,14 @@ export const useWorkflowRunner = () => {
     }, [workflows, registerCustomShortcutCallback]);
 
     const executeWorkflow = async (workflow: Workflow) => {
-        console.log(`🚀 Starting workflow: ${workflow.name}`);
+        // FIX: Prevent duplicate execution by restricting to "main" window
+        const currentWindow = await import("@tauri-apps/api/window").then(m => m.getCurrentWindow());
+        if (currentWindow.label !== "main") {
+            return;
+        }
+
+        console.log(`[${currentWindow.label}] 🚀 Starting workflow: ${workflow.name}`);
+        console.log(`[${currentWindow.label}] Available Providers:`, allAiProviders.map(p => p.id));
 
         let lastResult: any = null;
         let capturedImageBase64: string = "";
