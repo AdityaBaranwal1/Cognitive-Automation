@@ -130,4 +130,26 @@ export const AI_PROVIDERS = [
     responseContentPath: "choices[0].message.content",
     streaming: true,
   },
+  {
+    id: "lm-studio",
+    name: "LM Studio (Local)",
+    curl: `curl http://localhost:1234/v1/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "{{MODEL}}",
+    "messages": [
+      { "role": "system", "content": "{{SYSTEM_PROMPT}}" },
+      { "role": "user", "content": [
+          { "type": "text", "text": "{{TEXT}}" },
+          { "type": "image_url", "image_url": { "url": "data:image/png;base64,{{IMAGE}}" } }
+        ]
+      }
+    ],
+    "temperature": 0.7,
+    "max_tokens": -1,
+    "stream": false
+  }'`,
+    responseContentPath: "choices[0].message.content",
+    streaming: false,
+  },
 ];

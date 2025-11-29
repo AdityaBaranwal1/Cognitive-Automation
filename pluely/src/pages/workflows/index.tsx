@@ -8,47 +8,29 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, MousePointerClick, Play } from "lucide-react";
+import { Plus, Trash2, MousePointerClick, RefreshCw, Loader2 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { PageLayout } from "@/layouts";
 import { HotkeyRecorder } from "@/components";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import curl2Json from "@bany/curl-to-json";
+import { deepVariableReplacer } from "@/lib/functions/common.function";
 
 const WorkflowEditor = () => {
-    const { workflows, saveWorkflow, updateWorkflow, deleteWorkflow } = useApp();
+    const { workflows, saveWorkflow, updateWorkflow, deleteWorkflow, allAiProviders } = useApp();
     const { prompts: systemPrompts } = useSystemPrompts();
     const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
     const [isCapturing, setIsCapturing] = useState(false);
+    const [fetchedModels, setFetchedModels] = useState<Record<string, string[]>>({});
+    const [isLoadingModels, setIsLoadingModels] = useState<string | null>(null);
 
     const selectedWorkflow = workflows.find(w => w.id === selectedWorkflowId);
 
     // Listen for capture events
     useEffect(() => {
         const unlisten = listen("captured-selection", (event) => {
-            // This is just a fallback/confirmation if needed, 
-            // but we might not get the coords here directly if the backend command returns void.
-            // Actually, we need to know WHICH step initiated the capture.
-            // Since we can't easily pass state through the backend event, 
-            // we'll rely on the fact that the user is "blocked" in the capture UI.
-            // However, the backend command select_region_coordinates now returns void immediately.
-            // Wait, the backend implementation I wrote returns Ok(()) immediately.
-            // But it emits "captured-selection" with base64... wait.
-            // The previous implementation of select_region_coordinates returned coords.
-            // The NEW implementation returns Ok(()) and should emit an event with coords?
-            // Let me re-read the backend code I just wrote.
-            // I wrote: app.emit("captured-selection", &base64_str) in capture_selected_area.
-            // BUT select_region_coordinates just opens the overlay.
-            // The overlay logic needs to handle the selection.
-            // The overlay logic in index.html/capture.ts likely calls capture_selected_area.
-            // We need to make sure the overlay returns COORDS, not just base64.
-            // For now, let's assume the standard capture flow works for "visual" selection,
-            // but for "coordinate" selection, we might need to adjust the overlay to emit coords.
-
-            // Actually, looking at the plan: "Emit an Event (e.g., AREA_SELECTED) to the main window with the JSON payload."
-            // I haven't implemented that part in the overlay JS side yet.
-            // But I did modify the backend to return immediately.
-
-            // Let's implement the listener for now assuming we'll get "area-selected" event.
+            // Placeholder for future event handling
         });
 
         return () => {
@@ -76,7 +58,7 @@ const WorkflowEditor = () => {
         if (type === "capture_region") {
             config = { x: 0, y: 0, width: 0, height: 0, mode: "fixed" } as CaptureStepConfig;
         } else if (type === "ai_process") {
-            config = { prompt: "", model: "qwen2-vl-2b-instruct" } as AIStepConfig;
+            config = { prompt: "", model: "qwen2-vl-2b-instruct", providerId: "lm-studio" } as AIStepConfig;
         } else if (type === "action_notification") {
             config = { title: "Show in Chat Overlay" } as ActionNotificationConfig;
         }
@@ -111,20 +93,10 @@ const WorkflowEditor = () => {
     const handlePickRegion = async (stepId: string) => {
         try {
             setIsCapturing(true);
-
-            // 1. Hide main window to get out of the way
             await invoke("toggle_dashboard");
-
-            // 2. Start selection (opens overlay)
             await invoke("start_region_selection");
-
-            // 3. Wait for result (blocks until user selects or timeouts)
-            // This eliminates race conditions because we are explicitly waiting for the data
             const coords = await invoke<any>("wait_for_region_selection");
 
-            console.log("Region selected:", coords);
-
-            // 4. Update the step with new coordinates
             handleUpdateStep(stepId, {
                 x: coords.x,
                 y: coords.y,
@@ -134,7 +106,6 @@ const WorkflowEditor = () => {
                 mode: "fixed"
             });
 
-            // 5. Show dashboard again
             await invoke("open_dashboard");
             setIsCapturing(false);
 
@@ -142,6 +113,101 @@ const WorkflowEditor = () => {
             console.error("Failed to pick region:", error);
             setIsCapturing(false);
             await invoke("open_dashboard");
+        }
+    };
+
+    const fetchModelsForProvider = async (providerId: string) => {
+        setIsLoadingModels(providerId);
+        try {
+            const provider = allAiProviders.find(p => p.id === providerId);
+            if (!provider) throw new Error("Provider not found");
+
+            // Try to deduce the models endpoint from the chat endpoint
+            let curlCommand = provider.curl;
+            let baseUrl = "";
+            let apiKey = "";
+
+            // Parse cURL to get URL and Headers (for Key)
+            try {
+                const curlJson = curl2Json(curlCommand);
+                const url = curlJson.url;
+
+                // Extract Base URL (remove /chat/completions or similar)
+                // Common patterns: /v1/chat/completions -> /v1/models
+                if (url.includes("/chat/completions")) {
+                    baseUrl = url.split("/chat/completions")[0];
+                } else if (url.includes("/completions")) {
+                    baseUrl = url.split("/completions")[0];
+                } else {
+                    // Fallback: try to just use the domain + /v1/models
+                    const urlObj = new URL(url);
+                    baseUrl = `${urlObj.protocol}//${urlObj.host}/v1`;
+                }
+
+                // Extract API Key from headers or variables
+                // Check variables first
+                apiKey = provider.variables?.API_KEY || "";
+
+                // If not in variables, check if it's hardcoded in the header
+                if (!apiKey && curlJson.header) {
+                    const authHeader = curlJson.header["Authorization"];
+                    if (authHeader && authHeader.includes("Bearer ")) {
+                        const parts = authHeader.split("Bearer ");
+                        if (parts.length > 1 && !parts[1].includes("{{")) {
+                            apiKey = parts[1];
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn("Failed to parse cURL for model fetching", e);
+                // Fallback for standard providers if cURL parsing fails
+                if (providerId === "openai") baseUrl = "https://api.openai.com/v1";
+                if (providerId === "lm-studio") baseUrl = "http://localhost:1234/v1";
+            }
+
+            if (!baseUrl) throw new Error("Could not determine base URL");
+
+            const modelsUrl = `${baseUrl}/models`;
+
+            // Prepare headers
+            const headers: Record<string, string> = {
+                "Content-Type": "application/json"
+            };
+
+            // If we have an API key (either resolved from variables or hardcoded), add it
+            // Note: If the key is still {{API_KEY}}, deepVariableReplacer will handle it if we pass variables
+            // But here we need to manually resolve it for the models call
+
+            let finalApiKey = apiKey;
+            if (!finalApiKey && provider.variables?.API_KEY) {
+                finalApiKey = provider.variables.API_KEY;
+            }
+
+            if (finalApiKey && !finalApiKey.includes("{{")) {
+                headers["Authorization"] = `Bearer ${finalApiKey}`;
+            }
+
+            const isLocal = modelsUrl.includes("localhost") || modelsUrl.includes("127.0.0.1");
+            const fetchFn = isLocal ? fetch : tauriFetch;
+
+            const response = await fetchFn(modelsUrl, {
+                method: "GET",
+                headers
+            });
+
+            if (!response.ok) throw new Error("Failed to fetch models");
+
+            const data = await response.json();
+            const models = data.data?.map((m: any) => m.id) || [];
+
+            setFetchedModels(prev => ({ ...prev, [providerId]: models }));
+
+        } catch (error) {
+            console.error("Error fetching models:", error);
+            // Fallback models if fetch fails
+            setFetchedModels(prev => ({ ...prev, [providerId]: ["gpt-4o", "gpt-3.5-turbo", "claude-3-opus", "qwen2-vl-2b-instruct"] }));
+        } finally {
+            setIsLoadingModels(null);
         }
     };
 
@@ -252,6 +318,56 @@ const WorkflowEditor = () => {
 
                                                 {step.type === "ai_process" && (
                                                     <div className="space-y-4">
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div className="space-y-2">
+                                                                <Label>AI Provider</Label>
+                                                                <Select
+                                                                    value={step.config.providerId || "lm-studio"}
+                                                                    onValueChange={(val) => handleUpdateStep(step.id, { providerId: val })}
+                                                                >
+                                                                    <SelectTrigger>
+                                                                        <SelectValue placeholder="Select Provider" />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        {allAiProviders.map(p => (
+                                                                            <SelectItem key={p.id} value={p.id || "unknown"}>
+                                                                                {p.isCustom ? (p.id) : (p.id || "Unknown")}
+                                                                            </SelectItem>
+                                                                        ))}
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                <Label className="flex justify-between items-center">
+                                                                    Model
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-4 w-4"
+                                                                        onClick={() => fetchModelsForProvider(step.config.providerId || "lm-studio")}
+                                                                        disabled={isLoadingModels === (step.config.providerId || "lm-studio")}
+                                                                    >
+                                                                        {isLoadingModels === (step.config.providerId || "lm-studio") ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                                                                    </Button>
+                                                                </Label>
+                                                                <Select
+                                                                    value={step.config.model}
+                                                                    onValueChange={(val) => handleUpdateStep(step.id, { model: val })}
+                                                                >
+                                                                    <SelectTrigger>
+                                                                        <SelectValue placeholder="Select Model" />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        {(fetchedModels[step.config.providerId || "lm-studio"] || [step.config.model, "gpt-4o", "gpt-3.5-turbo", "qwen2-vl-2b-instruct"]).map(m => (
+                                                                            <SelectItem key={m} value={m}>
+                                                                                {m}
+                                                                            </SelectItem>
+                                                                        ))}
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </div>
+                                                        </div>
+
                                                         <div className="space-y-2">
                                                             <Label>System Prompt</Label>
                                                             <Select

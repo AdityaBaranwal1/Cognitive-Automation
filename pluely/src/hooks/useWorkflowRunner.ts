@@ -1,18 +1,41 @@
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useApp, useSystemPrompts } from "@/contexts";
+import { useApp } from "@/contexts";
 import { useGlobalShortcuts } from "./useGlobalShortcuts";
-import { Workflow } from "@/types";
-import { saveConversation, generateMessageId, generateConversationTitle, getAllSystemPrompts } from "@/lib";
+import { Workflow, AIStepConfig } from "@/types";
+import { saveConversation, generateMessageId, generateConversationTitle, getAllSystemPrompts, fetchAIResponse } from "@/lib";
+import { TYPE_PROVIDER } from "@/types/provider.type";
+
+// Safety Fallback: Use this if the user hasn't configured LM Studio in Settings yet
+const FALLBACK_LM_STUDIO_PROVIDER: TYPE_PROVIDER = {
+    id: "lm-studio",
+    name: "LM Studio (Local)",
+    curl: `curl http://localhost:1234/v1/chat/completions \\
+-H "Content-Type: application/json" \\
+-d '{
+  "model": "{{MODEL}}",
+  "messages": [
+    { "role": "system", "content": "{{SYSTEM_PROMPT}}" },
+    { "role": "user", "content": [
+        { "type": "text", "text": "{{TEXT}}" },
+        { "type": "image_url", "image_url": { "url": "data:image/png;base64,{{IMAGE}}" } }
+      ]
+    }
+  ],
+  "temperature": 0.7,
+  "max_tokens": -1,
+  "stream": false
+}'`,
+    responseContentPath: "choices[0].message.content",
+    streaming: false,
+    isCustom: true
+};
 
 export const useWorkflowRunner = () => {
-    const { workflows, systemPrompt: defaultSystemPrompt } = useApp();
+    const { workflows, systemPrompt: defaultSystemPrompt, allAiProviders } = useApp();
     const { registerCustomShortcutCallback } = useGlobalShortcuts();
-    // We can't use useSystemPrompts hook inside the callback directly because of stale closures,
-    // but we can fetch fresh prompts from the DB when needed.
 
     useEffect(() => {
-        // Register callbacks for all active workflows
         workflows.forEach(workflow => {
             if (workflow.trigger.type === "hotkey" && workflow.trigger.enabled) {
                 registerCustomShortcutCallback(workflow.id, () => executeWorkflow(workflow));
@@ -24,155 +47,147 @@ export const useWorkflowRunner = () => {
         console.log(`🚀 Starting workflow: ${workflow.name}`);
 
         let lastResult: any = null;
-        let capturedImageBase64: string | null = null;
+        let capturedImageBase64: string = "";
         let userPromptContext: string = "";
 
         try {
             for (const step of workflow.steps) {
                 console.log(`Running step: ${step.type}`);
 
-                if (step.type === "capture_region") {
-                    // Capture the region defined in config
-                    const { x, y, width, height, monitorIndex } = step.config;
+                // CRITICAL FIX: Listen for BOTH legacy 'capture_region' and new 'capture_screen'
+                if (step.type === "capture_region" || step.type === "capture_screen") {
+                    const config = step.config as any;
+                    const { x, y, width, height, monitorIndex, mode } = config;
 
-                    // Use the silent capture command
-                    const base64 = await invoke<string>("capture_area_silent", {
-                        coords: { x, y, width, height },
-                        monitorIndex: monitorIndex ?? 0
-                    });
+                    let base64 = "";
+                    // Support Fullscreen if explicitly requested, otherwise DEFAULT to Region Capture
+                    if (mode === "fullscreen") {
+                        base64 = await invoke<string>("capture_screen_silent", {
+                            monitorIndex: monitorIndex ?? 0
+                        });
+                    } else {
+                        // Standard Region Capture (The core feature)
+                        base64 = await invoke<string>("capture_area_silent", {
+                            coords: { x, y, width, height },
+                            monitorIndex: monitorIndex ?? 0
+                        });
+                    }
                     capturedImageBase64 = base64;
                     lastResult = base64;
                 }
                 else if (step.type === "ai_process") {
                     if (!capturedImageBase64) {
-                        throw new Error("No image captured for AI process");
+                        console.warn("No image captured for AI process. Proceeding with text only.");
                     }
 
-                    // Fetch the actual system prompt content
+                    const config = step.config as AIStepConfig;
+                    const providerId = config.providerId || "lm-studio";
+
+                    // 1. Resolve Provider (With Fallback)
+                    let providerConfig = allAiProviders.find(p => p.id === providerId);
+
+                    // Fallback for LM Studio if registry is empty
+                    if (!providerConfig && providerId === "lm-studio") {
+                        console.log("Using Fallback LM Studio Config");
+                        providerConfig = FALLBACK_LM_STUDIO_PROVIDER;
+                    }
+
+                    if (!providerConfig) {
+                        throw new Error(`Provider ${providerId} not found. Please configure it in settings.`);
+                    }
+
+                    // 2. Get System Prompt
                     let systemPromptContent = defaultSystemPrompt;
-                    if (step.config.systemPromptId) {
+                    if (config.systemPromptId) {
                         try {
-                            // We fetch directly from DB to avoid hook rules/stale state issues in this async callback
                             const allPrompts = await getAllSystemPrompts();
-                            const found = allPrompts.find(p => String(p.id) === String(step.config.systemPromptId));
-                            if (found) {
-                                systemPromptContent = found.prompt;
-                            }
+                            const found = allPrompts.find(p => String(p.id) === String(config.systemPromptId));
+                            if (found) systemPromptContent = found.prompt;
                         } catch (e) {
-                            console.error("Failed to fetch system prompt, using default", e);
+                            console.error("Failed to fetch system prompt", e);
                         }
                     }
 
-                    userPromptContext = step.config.prompt || "Analyze this image.";
+                    userPromptContext = config.prompt || "Analyze this image.";
 
-                    // LM Studio Payload
-                    const payload = {
-                        model: step.config.model || "qwen2-vl-2b-instruct",
-                        messages: [
-                            {
-                                role: "system",
-                                content: systemPromptContent
-                            },
-                            {
-                                role: "user",
-                                content: [
-                                    {
-                                        type: "text",
-                                        text: userPromptContext
-                                    },
-                                    {
-                                        type: "image_url",
-                                        image_url: {
-                                            url: `data:image/png;base64,${capturedImageBase64}`
-                                        }
-                                    }
-                                ]
+                    // 3. Execute using ROBUST fetchAIResponse (Logic Reuse)
+                    let fullResponse = "";
+
+                    const generator = fetchAIResponse({
+                        provider: providerConfig,
+                        selectedProvider: {
+                            provider: providerId,
+                            variables: {
+                                // FIX: Keys must be lowercase to pass validation check
+                                model: config.model || "qwen/qwen3-vl-8b",
+                                api_key: providerConfig.variables?.["api_key"] || providerConfig.variables?.["API_KEY"] || "",
+                                ...(providerConfig.variables || {})
                             }
-                        ],
-                        temperature: 0.7,
-                        max_tokens: -1,
-                        stream: false
-                    };
-
-                    // Send to LM Studio (assuming localhost:1234)
-                    const response = await fetch("http://localhost:1234/v1/chat/completions", {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json"
                         },
-                        body: JSON.stringify(payload)
+                        systemPrompt: systemPromptContent,
+                        userMessage: userPromptContext,
+                        imagesBase64: capturedImageBase64 ? [capturedImageBase64] : [],
+                        history: []
                     });
 
-                    if (!response.ok) {
-                        throw new Error(`AI Request failed: ${response.statusText}`);
+                    for await (const chunk of generator) {
+                        fullResponse += chunk;
                     }
 
-                    const data = await response.json();
-                    const aiText = data.choices?.[0]?.message?.content || "No response";
-                    lastResult = aiText;
+                    console.log("AI Response:", fullResponse);
+                    lastResult = fullResponse;
                 }
-                else if (step.type === "action_notification") {
-                    const outputText = typeof lastResult === "string" ? lastResult : "Workflow completed";
-                    const actionType = step.config.title; // We reused 'title' field for the dropdown selection
+                else if (step.type === "action_notification" || step.type === "system_action") {
+                    const outputText = typeof lastResult === "string" ? lastResult : JSON.stringify(lastResult);
+                    const config = step.config as any;
+                    const isCopy = config.title === "Copy to Clipboard" || config.action === "copy_to_clipboard";
 
-                    if (actionType === "Copy to Clipboard") {
-                        try {
-                            await navigator.clipboard.writeText(outputText);
-                            // Optional: Show a small toast or notification that it was copied
-                            if ("Notification" in window && Notification.permission === "granted") {
-                                new Notification("Copied to Clipboard", { body: "AI response copied to clipboard" });
-                            }
-                        } catch (err) {
-                            console.error("Failed to copy to clipboard:", err);
+                    if (isCopy) {
+                        await navigator.clipboard.writeText(outputText);
+                        if ("Notification" in window && Notification.permission === "granted") {
+                            new Notification("Copied to Clipboard", { body: "AI response copied" });
                         }
                     } else {
-                        // Default: Show in Chat Overlay
+                        // Default: Chat Overlay
                         const timestamp = Date.now();
-
-                        // Create a new conversation or append to existing?
-                        // For simplicity, let's create a new "Workflow Result" conversation for now,
-                        // or better yet, just inject into the DB and let the UI pick it up if we reload.
-                        // Ideally we want to append to the "current" conversation if one is open, but we don't have that ID here easily.
-                        // So we create a new one.
-
                         const conversationId = crypto.randomUUID();
-                        const userMsg = {
-                            id: generateMessageId("user", timestamp),
-                            role: "user" as const,
-                            content: `[Workflow] ${userPromptContext}`, // Show what we asked
-                            timestamp: timestamp
-                        };
-                        const aiMsg = {
-                            id: generateMessageId("assistant", timestamp + 1),
-                            role: "assistant" as const,
-                            content: outputText,
-                            timestamp: timestamp + 1
-                        };
 
-                        const newConversation = {
+                        await saveConversation({
                             id: conversationId,
                             title: generateConversationTitle(userPromptContext) || "Workflow Result",
-                            messages: [userMsg, aiMsg],
+                            messages: [
+                                {
+                                    id: generateMessageId("user", timestamp),
+                                    role: "user",
+                                    content: `[Workflow] ${userPromptContext}`,
+                                    timestamp: timestamp,
+                                    attachedFiles: capturedImageBase64 ? [{
+                                        id: crypto.randomUUID(),
+                                        name: "workflow_capture.png",
+                                        type: "image/png",
+                                        base64: capturedImageBase64,
+                                        size: capturedImageBase64.length
+                                    }] : []
+                                },
+                                {
+                                    id: generateMessageId("assistant", timestamp + 1),
+                                    role: "assistant",
+                                    content: outputText,
+                                    timestamp: timestamp + 1
+                                }
+                            ],
                             createdAt: timestamp,
                             updatedAt: timestamp
-                        };
+                        });
 
-                        await saveConversation(newConversation);
-
-                        // Open the dashboard to show the result
                         await invoke("open_dashboard");
-
-                        // We might need to trigger a reload of the conversation list in the UI
-                        // but since we just opened the dashboard, it might re-fetch. 
-                        // If not, the user will see it in the history list.
                     }
                 }
             }
         } catch (error) {
             console.error("Workflow execution failed:", error);
-            if ("Notification" in window && Notification.permission === "granted") {
-                new Notification("Workflow Failed", { body: String(error) });
-            }
         }
     };
+
+    return { executeWorkflow };
 };

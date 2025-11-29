@@ -85,6 +85,7 @@ pub fn run() {
             capture::submit_region_selection,
             capture::wait_for_region_selection,
             capture::capture_area_silent,
+            capture::capture_screen_silent,
             capture::close_overlay_window,
             shortcuts::check_shortcuts_registered,
             shortcuts::get_registered_shortcuts,

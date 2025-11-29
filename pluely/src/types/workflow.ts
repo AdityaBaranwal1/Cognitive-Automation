@@ -1,43 +1,54 @@
-export type WorkflowStepType = "capture_region" | "ai_process" | "action_notification" | "action_type";
+export type WorkflowTriggerType = "hotkey" | "keyword" | "manual";
+
+export interface WorkflowTrigger {
+    type: WorkflowTriggerType;
+    key?: string; // For hotkey
+    keyword?: string; // For keyword
+    enabled: boolean;
+}
+
+export type StepType = "capture_screen" | "ai_process" | "system_action" | "delay" | "capture_region" | "action_notification";
+
+export interface BaseStepConfig {
+    [key: string]: any;
+}
+
+export interface CaptureStepConfig extends BaseStepConfig {
+    mode: "fullscreen" | "window" | "area";
+}
+
+export type AIProviderType = "lm-studio" | "openai" | "anthropic" | "custom";
+
+export interface AIStepConfig extends BaseStepConfig {
+    providerId: string; // Reference to the provider in Dev Space
+    model: string;      // Specific model to use (fetched dynamically)
+    prompt: string;     // The user prompt
+    systemPromptId?: string; // Reference to system prompt
+    temperature?: number;
+    maxTokens?: number;
+}
+
+export interface SystemActionConfig extends BaseStepConfig {
+    action: "copy_to_clipboard" | "save_to_file" | "open_url" | "run_command" | "notification";
+    value: string; // The content to copy, path to save, URL to open, etc.
+}
+
+export interface DelayStepConfig extends BaseStepConfig {
+    durationMs: number;
+}
 
 export interface WorkflowStep {
     id: string;
-    type: WorkflowStepType;
-    config: any;
-}
-
-export interface CaptureStepConfig {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    monitorIndex?: number;
-    mode: "fixed" | "interactive";
-}
-
-export interface AIStepConfig {
-    prompt: string;
-    model: string;
-    systemPromptId?: string; // ID of a dragged-and-dropped system prompt
-}
-
-export interface ActionNotificationConfig {
-    title: string;
-    message?: string; // Optional custom message, defaults to AI output
-}
-
-export interface ActionTypeConfig {
-    text?: string; // If empty, types the AI output
+    type: StepType;
+    name: string;
+    config: CaptureStepConfig | AIStepConfig | SystemActionConfig | DelayStepConfig;
 }
 
 export interface Workflow {
     id: string;
     name: string;
-    trigger: {
-        type: "hotkey";
-        key: string;
-        enabled: boolean;
-    };
+    description?: string;
+    trigger: WorkflowTrigger;
     steps: WorkflowStep[];
     createdAt: number;
     updatedAt: number;

@@ -97,6 +97,11 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     variables: {},
   });
 
+  // Provider Config Store (Persisted variables for all providers)
+  const [providerConfigs, setProviderConfigs] = useState<
+    Record<string, Record<string, string>>
+  >({});
+
   // STT Providers
   const [customSttProviders, setCustomSttProviders] = useState<TYPE_PROVIDER[]>(
     []
@@ -229,6 +234,18 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     );
     if (savedSelectedStt) {
       setSelectedSttProvider(JSON.parse(savedSelectedStt));
+    }
+
+    // Load provider configs
+    const savedProviderConfigs = safeLocalStorage.getItem(
+      STORAGE_KEYS.PROVIDER_CONFIGS
+    );
+    if (savedProviderConfigs) {
+      try {
+        setProviderConfigs(JSON.parse(savedProviderConfigs));
+      } catch (e) {
+        console.warn("Failed to parse provider configs", e);
+      }
     }
 
     // Load customizable state
@@ -399,7 +416,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         e.key === STORAGE_KEYS.SELECTED_STT_PROVIDER ||
         e.key === STORAGE_KEYS.SYSTEM_PROMPT ||
         e.key === STORAGE_KEYS.SCREENSHOT_CONFIG ||
-        e.key === STORAGE_KEYS.CUSTOMIZABLE
+        e.key === STORAGE_KEYS.CUSTOMIZABLE ||
+        e.key === STORAGE_KEYS.PROVIDER_CONFIGS
       ) {
         loadData();
       }
@@ -428,11 +446,29 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [selectedSttProvider]);
 
+  // Sync provider configs to localStorage
+  useEffect(() => {
+    safeLocalStorage.setItem(
+      STORAGE_KEYS.PROVIDER_CONFIGS,
+      JSON.stringify(providerConfigs)
+    );
+  }, [providerConfigs]);
+
   // Computed all AI providers
   const allAiProviders: TYPE_PROVIDER[] = [
     ...AI_PROVIDERS,
     ...customAiProviders,
-  ];
+  ].map((provider) => {
+    // Merge saved variables if they exist
+    const savedVars = providerConfigs[provider.id || ""] || {};
+    return {
+      ...provider,
+      variables: {
+        ...(provider.variables || {}),
+        ...savedVars,
+      },
+    };
+  });
 
   // Computed all STT providers
   const allSttProviders: TYPE_PROVIDER[] = [
@@ -456,6 +492,12 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       ...prev,
       provider,
       variables,
+    }));
+
+    // Also update the persistent config store
+    setProviderConfigs((prev) => ({
+      ...prev,
+      [provider]: variables,
     }));
   };
 
@@ -502,11 +544,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const newState = updateAutostart(isEnabled);
     setCustomizable(newState);
     try {
-      if (isEnabled) {
-        await enable();
-      } else {
-        await disable();
-      }
+      await invoke("set_always_on_top", { enabled: isEnabled });
       loadData();
     } catch (error) {
       console.error("Failed to toggle autostart:", error);

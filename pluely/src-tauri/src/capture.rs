@@ -582,3 +582,31 @@ pub async fn capture_area_silent(
 
     Ok(base64_str)
 }
+
+#[tauri::command]
+pub async fn capture_screen_silent(
+    monitor_index: usize,
+) -> Result<String, String> {
+    // Get monitors
+    let monitors = Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
+    
+    let monitor = monitors.get(monitor_index).ok_or_else(|| format!("Monitor index {} out of bounds", monitor_index))?;
+    
+    // Capture the full monitor image
+    let image = monitor.capture_image().map_err(|e| format!("Failed to capture monitor: {}", e))?;
+    
+    // Encode to PNG and base64
+    let mut png_buffer = Vec::new();
+    PngEncoder::new(&mut png_buffer)
+        .write_image(
+            image.as_raw(),
+            image.width(),
+            image.height(),
+            ColorType::Rgba8.into(),
+        )
+        .map_err(|e| format!("Failed to encode to PNG: {}", e))?;
+
+    let base64_str = base64::engine::general_purpose::STANDARD.encode(png_buffer);
+
+    Ok(base64_str)
+}

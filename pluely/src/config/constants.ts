@@ -19,9 +19,9 @@ export const STORAGE_KEYS = {
 
   SELECTED_AUDIO_INPUT_DEVICE: "selected_audio_input_device",
   SELECTED_AUDIO_OUTPUT_DEVICE: "selected_audio_output_device",
-  SELECTED_AUDIO_OUTPUT_DEVICE: "selected_audio_output_device",
   RESPONSE_SETTINGS: "response_settings",
   WORKFLOWS: "workflows",
+  PROVIDER_CONFIGS: "provider_configs",
 } as const;
 
 // Max number of files that can be attached to a message
