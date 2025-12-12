@@ -168,6 +168,7 @@ export async function* fetchAIResponse(params: {
   userMessage: string;
   imagesBase64?: string[];
   signal?: AbortSignal;
+  skipResponseSettings?: boolean; // FIX: Skip response length/language for workflows
 }): AsyncIterable<string> {
   try {
     const {
@@ -178,6 +179,7 @@ export async function* fetchAIResponse(params: {
       userMessage,
       imagesBase64 = [],
       signal,
+      skipResponseSettings = false,
     } = params;
 
     // Check if already aborted
@@ -185,7 +187,10 @@ export async function* fetchAIResponse(params: {
       return;
     }
 
-    const enhancedSystemPrompt = buildEnhancedSystemPrompt(systemPrompt);
+    // FIX: Skip response settings for workflows - use raw system prompt
+    const enhancedSystemPrompt = skipResponseSettings
+      ? (systemPrompt || "")
+      : buildEnhancedSystemPrompt(systemPrompt);
 
     // Check if we should use Pluely API instead
     const usePluelyAPI = await shouldUsePluelyAPI();
@@ -211,8 +216,7 @@ export async function* fetchAIResponse(params: {
       curlJson = curl2Json(provider.curl);
     } catch (error) {
       throw new Error(
-        `Failed to parse curl: ${
-          error instanceof Error ? error.message : "Unknown error"
+        `Failed to parse curl: ${error instanceof Error ? error.message : "Unknown error"
         }`
       );
     }
@@ -305,9 +309,8 @@ export async function* fetchAIResponse(params: {
       ) {
         return; // Silently return on abort
       }
-      yield `Network error during API request: ${
-        fetchError instanceof Error ? fetchError.message : "Unknown error"
-      }`;
+      yield `Network error during API request: ${fetchError instanceof Error ? fetchError.message : "Unknown error"
+        }`;
       return;
     }
 
@@ -315,10 +318,9 @@ export async function* fetchAIResponse(params: {
       let errorText = "";
       try {
         errorText = await response.text();
-      } catch {}
-      yield `API request failed: ${response.status} ${response.statusText}${
-        errorText ? ` - ${errorText}` : ""
-      }`;
+      } catch { }
+      yield `API request failed: ${response.status} ${response.statusText}${errorText ? ` - ${errorText}` : ""
+        }`;
       return;
     }
 
@@ -327,9 +329,8 @@ export async function* fetchAIResponse(params: {
       try {
         json = await response.json();
       } catch (parseError) {
-        yield `Failed to parse non-streaming response: ${
-          parseError instanceof Error ? parseError.message : "Unknown error"
-        }`;
+        yield `Failed to parse non-streaming response: ${parseError instanceof Error ? parseError.message : "Unknown error"
+          }`;
         return;
       }
       const content =
@@ -365,9 +366,8 @@ export async function* fetchAIResponse(params: {
         ) {
           return; // Silently return on abort
         }
-        yield `Error reading stream: ${
-          readError instanceof Error ? readError.message : "Unknown error"
-        }`;
+        yield `Error reading stream: ${readError instanceof Error ? readError.message : "Unknown error"
+          }`;
         return;
       }
       const { done, value } = readResult;
@@ -404,8 +404,7 @@ export async function* fetchAIResponse(params: {
     }
   } catch (error) {
     throw new Error(
-      `Error in fetchAIResponse: ${
-        error instanceof Error ? error.message : "Unknown error"
+      `Error in fetchAIResponse: ${error instanceof Error ? error.message : "Unknown error"
       }`
     );
   }

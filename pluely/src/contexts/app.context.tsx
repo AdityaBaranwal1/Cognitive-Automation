@@ -29,6 +29,7 @@ import {
   useContext,
   useEffect,
   useState,
+  useRef,
 } from "react";
 
 const validateAndProcessCurlProviders = (
@@ -574,29 +575,47 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   // Workflow State
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
 
-  // Sync workflows to shortcuts
+  // --- HOTKEY OPTIMIZATION START ---
+
+  // Store the "fingerprint" of the last registered shortcuts
+  const prevShortcutsHash = useRef<string>("");
+
+  // Sync workflows to shortcuts (OPTIMIZED)
   useEffect(() => {
     const syncWorkflowShortcuts = async () => {
-      // We need to merge existing shortcuts with workflow shortcuts
-      // For now, let's just trigger an update. 
-      // The backend `update_shortcuts` takes a config. 
-      // We might need to modify `getShortcutsConfig` to include workflows or handle it here.
-      // Ideally, `getShortcutsConfig` reads from storage where we save everything.
-      // So if we save workflows to storage, and `getShortcutsConfig` reads them, we are good.
+      // 1. Filter down to ONLY the data that matters for hotkeys
+      // We don't care about 'steps', 'prompt', or 'description' here.
+      const hotkeyData = workflows.map((w) => ({
+        id: w.id,
+        key: w.trigger.key,
+        enabled: w.trigger.enabled,
+      }));
 
-      // However, `getShortcutsConfig` likely only reads the `shortcuts` key.
-      // We should probably update the `shortcuts` storage key whenever workflows change.
+      // 2. Create a stable string representation (Hash)
+      const currentHash = JSON.stringify(hotkeyData);
 
+      // 3. THE GUARD CLAUSE:
+      // If the hotkey configuration hasn't changed, DO NOT call Rust.
+      if (currentHash === prevShortcutsHash.current) {
+        return;
+      }
+
+      // 4. Update the ref for the next render
+      prevShortcutsHash.current = currentHash;
+
+      console.log("⚡ Updating System Shortcuts (Config Changed)...");
+
+      // 5. Proceed with the update logic
       const currentShortcuts = getShortcutsConfig();
       const workflowBindings: Record<string, any> = {};
 
-      workflows.forEach(w => {
-        if (w.trigger.type === "hotkey" && w.trigger.enabled) {
+      workflows.forEach((w) => {
+        if (w.trigger.type === "hotkey" && w.trigger.enabled && w.trigger.key) {
           workflowBindings[w.id] = {
             action: w.id,
             key: w.trigger.key,
             enabled: true,
-            label: w.name
+            label: w.name,
           };
         }
       });
@@ -605,8 +624,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       const newConfig = {
         bindings: {
           ...currentShortcuts.bindings,
-          ...workflowBindings
-        }
+          ...workflowBindings,
+        },
       };
 
       try {
@@ -616,10 +635,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       }
     };
 
+    // Run sync
     if (workflows.length > 0) {
       syncWorkflowShortcuts();
     }
-  }, [workflows]);
+  }, [workflows]); // We still depend on [workflows], but we filter inside.
+
+  // --- HOTKEY OPTIMIZATION END ---
 
   const saveWorkflow = async (workflow: Workflow) => {
     const newWorkflows = [...workflows, workflow];

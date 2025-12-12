@@ -17,7 +17,6 @@ export const HotkeyRecorder = ({
     className,
 }: HotkeyRecorderProps) => {
     const [isRecording, setIsRecording] = useState(false);
-    const [keys, setKeys] = useState<Set<string>>(new Set());
 
     const formatHotkey = (keyEvent: KeyboardEvent): string | null => {
         const modifiers: string[] = [];
@@ -63,17 +62,13 @@ export const HotkeyRecorder = ({
 
     useEffect(() => {
         if (isRecording) {
-            window.addEventListener("keydown", handleKeyDown);
-            // We also need to prevent other listeners from firing if possible,
-            // but stopPropagation in capture phase might be needed if this was a global listener.
-            // Since this is a React event handler attached to window, it might race.
-            // Better to attach to the button or a focused input, but for global hotkeys, 
-            // users often expect to just press keys.
-            // Let's try attaching to window for now as it captures everything.
+            // FIX: Use capture phase (true) to intercept F-keys before browser handles them
+            // This prevents F5 from refreshing, F12 from opening devtools, etc during recording
+            window.addEventListener("keydown", handleKeyDown, true);
         }
 
         return () => {
-            window.removeEventListener("keydown", handleKeyDown);
+            window.removeEventListener("keydown", handleKeyDown, true);
         };
     }, [isRecording, handleKeyDown]);
 

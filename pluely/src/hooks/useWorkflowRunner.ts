@@ -6,6 +6,31 @@ import { Workflow, AIStepConfig } from "@/types";
 import { saveConversation, generateMessageId, generateConversationTitle, getAllSystemPrompts, fetchAIResponse } from "@/lib";
 import { TYPE_PROVIDER } from "@/types/provider.type";
 
+// --- Execution Context for Multi-Capture Workflows ---
+export interface CapturedImage {
+    id: string;
+    base64: string;
+    timestamp: number;
+    source: "region" | "fullscreen";
+    metadata?: { x: number; y: number; width: number; height: number };
+}
+
+export interface ExecutionContext {
+    captures: CapturedImage[];        // Array of captured images (execution-scoped)
+    lastCapture: CapturedImage | null; // Most recent capture for convenience
+    shouldStop: boolean;               // Stop signal from stop hotkey
+    stepOutputs: string[];             // Output from each step for interpolation
+    variables: Record<string, any>;    // User-defined variables
+}
+
+const createExecutionContext = (): ExecutionContext => ({
+    captures: [],
+    lastCapture: null,
+    shouldStop: false,
+    stepOutputs: [],
+    variables: {}
+});
+
 // Safety Fallback: Use this if the user hasn't configured LM Studio in Settings yet
 const FALLBACK_LM_STUDIO_PROVIDER: TYPE_PROVIDER = {
     id: "lm-studio",
@@ -31,6 +56,25 @@ const FALLBACK_LM_STUDIO_PROVIDER: TYPE_PROVIDER = {
     isCustom: true
 };
 
+// --- Utility: Context Interpolation Engine ---
+const interpolateVariables = (text: string, history: string[]): string => {
+    if (!text) return "";
+    if (!history.length) return text;
+
+    let newText = text;
+    // Replace {{prev}} with the output of the immediately preceding step
+    const lastOutput = history[history.length - 1] || "";
+    newText = newText.replace(/\{\{prev\}\}/g, lastOutput);
+
+    // Replace {{step[n]}} with specific step output (0-indexed)
+    newText = newText.replace(/\{\{step\[(\d+)\]\}\}/g, (match, index) => {
+        const i = parseInt(index, 10);
+        return history[i] !== undefined ? history[i] : match;
+    });
+
+    return newText;
+};
+
 export const useWorkflowRunner = () => {
     const { workflows, systemPrompt: defaultSystemPrompt, allAiProviders } = useApp();
     const { registerCustomShortcutCallback } = useGlobalShortcuts();
@@ -54,8 +98,10 @@ export const useWorkflowRunner = () => {
         console.log(`[${currentWindow.label}] Available Providers:`, allAiProviders.map(p => p.id));
 
         let lastResult: any = null;
-        let capturedImageBase64: string = "";
         let userPromptContext: string = "";
+
+        // Initialize execution context (resets captures array for each workflow run)
+        const context: ExecutionContext = createExecutionContext();
 
         try {
             for (const step of workflow.steps) {
@@ -63,8 +109,8 @@ export const useWorkflowRunner = () => {
 
                 // CRITICAL FIX: Listen for BOTH legacy 'capture_region' and new 'capture_screen'
                 if (step.type === "capture_region" || step.type === "capture_screen") {
-                    const config = step.config as any;
-                    const { x, y, width, height, monitorIndex, mode } = config;
+                    const captureConfig = step.config as any;
+                    const { x, y, width, height, monitorIndex, mode } = captureConfig;
 
                     let base64 = "";
                     // Support Fullscreen if explicitly requested, otherwise DEFAULT to Region Capture
@@ -79,16 +125,28 @@ export const useWorkflowRunner = () => {
                             monitorIndex: monitorIndex ?? 0
                         });
                     }
-                    capturedImageBase64 = base64;
+
+                    // Add to captures array (multi-image accumulation)
+                    const capturedImage: CapturedImage = {
+                        id: crypto.randomUUID(),
+                        base64: base64,
+                        timestamp: Date.now(),
+                        source: mode === "fullscreen" ? "fullscreen" : "region",
+                        metadata: mode !== "fullscreen" ? { x, y, width, height } : undefined
+                    };
+                    context.captures.push(capturedImage);
+                    context.lastCapture = capturedImage;
+
                     lastResult = base64;
+                    context.stepOutputs.push(`[Image Captured: ${context.captures.length}]`);
                 }
                 else if (step.type === "ai_process") {
-                    if (!capturedImageBase64) {
-                        console.warn("No image captured for AI process. Proceeding with text only.");
+                    if (context.captures.length === 0) {
+                        console.warn("No images captured for AI process. Proceeding with text only.");
                     }
 
-                    const config = step.config as AIStepConfig;
-                    const providerId = config.providerId || "lm-studio";
+                    const aiConfig = step.config as AIStepConfig;
+                    const providerId = aiConfig.providerId || "lm-studio";
 
                     // 1. Resolve Provider (With Fallback)
                     let providerConfig = allAiProviders.find(p => p.id === providerId);
@@ -103,19 +161,36 @@ export const useWorkflowRunner = () => {
                         throw new Error(`Provider ${providerId} not found. Please configure it in settings.`);
                     }
 
-                    // 2. Get System Prompt
+                    // 2. Get System Prompt (workflow system prompt, NOT enhanced with response settings)
                     let systemPromptContent = defaultSystemPrompt;
-                    if (config.systemPromptId) {
+                    if (aiConfig.systemPromptId) {
                         try {
                             const allPrompts = await getAllSystemPrompts();
-                            const found = allPrompts.find(p => String(p.id) === String(config.systemPromptId));
+                            const found = allPrompts.find(p => String(p.id) === String(aiConfig.systemPromptId));
                             if (found) systemPromptContent = found.prompt;
                         } catch (e) {
                             console.error("Failed to fetch system prompt", e);
                         }
                     }
 
-                    userPromptContext = config.prompt || "Analyze this image.";
+                    // --- User Prompt Logic (Smart Defaults) ---
+                    let rawPrompt = aiConfig.prompt;
+
+                    if (!rawPrompt || rawPrompt.trim() === "") {
+                        if (context.stepOutputs.length > 0) {
+                            // Rule 1: If chained, use previous output
+                            rawPrompt = "{{prev}}";
+                        } else if (aiConfig.systemPromptId) {
+                            // Rule 2: If System Prompt exists, use neutral text (don't override it)
+                            // We use a single space because some APIs reject purely empty strings
+                            rawPrompt = " ";
+                        } else {
+                            // Rule 3: No inputs at all? Default to generic analysis
+                            rawPrompt = "Analyze this image.";
+                        }
+                    }
+
+                    userPromptContext = interpolateVariables(rawPrompt, context.stepOutputs);
 
                     // 3. Execute using ROBUST fetchAIResponse (Logic Reuse)
                     let fullResponse = "";
@@ -126,15 +201,19 @@ export const useWorkflowRunner = () => {
                             provider: providerId,
                             variables: {
                                 // FIX: Keys must be lowercase to pass validation check
-                                model: config.model || "qwen/qwen3-vl-8b",
+                                model: aiConfig.model || "qwen/qwen3-vl-8b",
                                 api_key: providerConfig.variables?.["api_key"] || providerConfig.variables?.["API_KEY"] || "",
                                 ...(providerConfig.variables || {})
                             }
                         },
                         systemPrompt: systemPromptContent,
                         userMessage: userPromptContext,
-                        imagesBase64: capturedImageBase64 ? [capturedImageBase64] : [],
-                        history: []
+                        // Pass all captured images (multi-image support)
+                        imagesBase64: context.captures.map(c => c.base64),
+                        history: [],
+                        // FIX: Skip response settings (length/language) for workflows
+                        // Workflows should use the custom system prompt as-is
+                        skipResponseSettings: true
                     });
 
                     for await (const chunk of generator) {
@@ -142,12 +221,14 @@ export const useWorkflowRunner = () => {
                     }
 
                     console.log("AI Response:", fullResponse);
+                    console.log(`Processed ${context.captures.length} image(s)`);
                     lastResult = fullResponse;
+                    context.stepOutputs.push(fullResponse);
                 }
                 else if (step.type === "action_notification" || step.type === "system_action") {
                     const outputText = typeof lastResult === "string" ? lastResult : JSON.stringify(lastResult);
-                    const config = step.config as any;
-                    const isCopy = config.title === "Copy to Clipboard" || config.action === "copy_to_clipboard";
+                    const actionConfig = step.config as any;
+                    const isCopy = actionConfig.title === "Copy to Clipboard" || actionConfig.action === "copy_to_clipboard";
 
                     if (isCopy) {
                         await navigator.clipboard.writeText(outputText);
@@ -168,13 +249,14 @@ export const useWorkflowRunner = () => {
                                     role: "user",
                                     content: `[Workflow] ${userPromptContext}`,
                                     timestamp: timestamp,
-                                    attachedFiles: capturedImageBase64 ? [{
-                                        id: crypto.randomUUID(),
-                                        name: "workflow_capture.png",
+                                    // Attach all captured images to conversation
+                                    attachedFiles: context.captures.map((capture, idx) => ({
+                                        id: capture.id,
+                                        name: `workflow_capture_${idx + 1}.png`,
                                         type: "image/png",
-                                        base64: capturedImageBase64,
-                                        size: capturedImageBase64.length
-                                    }] : []
+                                        base64: capture.base64,
+                                        size: capture.base64.length
+                                    }))
                                 },
                                 {
                                     id: generateMessageId("assistant", timestamp + 1),
@@ -189,6 +271,7 @@ export const useWorkflowRunner = () => {
 
                         await invoke("open_dashboard");
                     }
+                    context.stepOutputs.push("Action Executed");
                 }
             }
         } catch (error) {

@@ -24,6 +24,7 @@ const WorkflowEditor = () => {
     const [isCapturing, setIsCapturing] = useState(false);
     const [fetchedModels, setFetchedModels] = useState<Record<string, string[]>>({});
     const [isLoadingModels, setIsLoadingModels] = useState<string | null>(null);
+    const [deleteConfirmWorkflowId, setDeleteConfirmWorkflowId] = useState<string | null>(null); // For delete confirmation dialog
 
     const selectedWorkflow = workflows.find(w => w.id === selectedWorkflowId);
 
@@ -225,21 +226,22 @@ const WorkflowEditor = () => {
                         </CardTitle>
                     </CardHeader>
                     <ScrollArea className="flex-1">
-                        <div className="p-2 space-y-1">
+                        <div className="p-2 pr-3 space-y-1">
                             {workflows.map(w => (
                                 <div
                                     key={w.id}
-                                    className={`p-2 rounded-md cursor-pointer text-sm flex justify-between items-center hover:bg-accent ${selectedWorkflowId === w.id ? "bg-accent" : ""}`}
+                                    className={`p-2 rounded-md cursor-pointer text-sm flex justify-between items-center hover:bg-accent gap-2 ${selectedWorkflowId === w.id ? "bg-accent" : ""}`}
                                     onClick={() => setSelectedWorkflowId(w.id)}
                                 >
-                                    <span className="truncate font-medium">{w.name}</span>
+                                    <span className="truncate font-medium flex-1 min-w-0">{w.name}</span>
                                     <Button
                                         size="icon"
                                         variant="ghost"
-                                        className="h-6 w-6 opacity-0 group-hover:opacity-100 hover:text-destructive"
+                                        className="h-6 w-6 shrink-0 text-gray-500 hover:text-red-500 hover:bg-red-500/10"
                                         onClick={(e) => { e.stopPropagation(); deleteWorkflow(w.id); }}
+                                        title="Delete workflow"
                                     >
-                                        <Trash2 className="h-3 w-3" />
+                                        <Trash2 className="h-3.5 w-3.5" />
                                     </Button>
                                 </div>
                             ))}
@@ -270,6 +272,18 @@ const WorkflowEditor = () => {
                                             })}
                                         />
                                     </div>
+                                </div>
+                                {/* Delete Workflow Button - Separate Row */}
+                                <div className="flex justify-end mt-3 pt-3 border-t border-border/50">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-muted-foreground hover:text-red-500 hover:border-red-500 hover:bg-red-500/10"
+                                        onClick={() => setDeleteConfirmWorkflowId(selectedWorkflow.id)}
+                                    >
+                                        <Trash2 className="h-4 w-4 mr-2" />
+                                        Delete Workflow
+                                    </Button>
                                 </div>
                             </Card>
 
@@ -434,6 +448,35 @@ const WorkflowEditor = () => {
                     )}
                 </div>
             </div>
+
+            {/* Delete Workflow Confirmation Dialog */}
+            {deleteConfirmWorkflowId && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-background border rounded-lg p-6 max-w-md mx-4">
+                        <h3 className="text-lg font-semibold mb-2">Delete Workflow</h3>
+                        <p className="text-sm text-muted-foreground mb-4">
+                            Are you sure you want to delete this workflow? This action cannot be undone.
+                        </p>
+                        <div className="flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setDeleteConfirmWorkflowId(null)}>
+                                Cancel
+                            </Button>
+                            <Button
+                                variant="destructive"
+                                onClick={() => {
+                                    deleteWorkflow(deleteConfirmWorkflowId);
+                                    setDeleteConfirmWorkflowId(null);
+                                    if (selectedWorkflowId === deleteConfirmWorkflowId) {
+                                        setSelectedWorkflowId(null);
+                                    }
+                                }}
+                            >
+                                Delete
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </PageLayout>
     );
 };

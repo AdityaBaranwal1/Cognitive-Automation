@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   getAllConversations,
   deleteConversation,
+  deleteAllConversations,
   DOWNLOAD_SUCCESS_DISPLAY_MS,
 } from "@/lib";
 import { ChatConversation } from "@/types/completion";
@@ -27,6 +28,7 @@ export interface UseHistoryReturn {
   handleDeleteConfirm: (conversationId: string) => void;
   confirmDelete: () => void;
   cancelDelete: () => void;
+  clearAllConversations: () => Promise<void>; // NEW: Bulk delete
   handleAttachToOverlay: (conversationId: string) => void;
   handleDownload: (
     conversation: ChatConversation | null,
@@ -154,6 +156,21 @@ export function useHistory(): UseHistoryReturn {
     setDeleteConfirm(null);
   };
 
+  // NEW: Clear all conversations (bulk delete)
+  const clearAllConversations = async () => {
+    try {
+      await deleteAllConversations();
+      setConversations([]);
+      setSelectedConversationId(null);
+      setViewingConversation(null);
+
+      // Emit event to notify other components
+      window.dispatchEvent(new CustomEvent("allConversationsDeleted"));
+    } catch (error) {
+      console.error("Failed to clear all conversations:", error);
+    }
+  };
+
   const handleAttachToOverlay = (conversationId: string) => {
     // Use localStorage to communicate between windows
     localStorage.setItem(
@@ -225,6 +242,7 @@ export function useHistory(): UseHistoryReturn {
     handleDeleteConfirm,
     confirmDelete,
     cancelDelete,
+    clearAllConversations, // NEW: Bulk delete
     handleAttachToOverlay,
     handleDownload,
     // Utilities
