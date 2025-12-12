@@ -3,6 +3,7 @@ mod activate;
 mod api;
 mod capture;
 mod db;
+mod input;  // NEW: Keyboard/mouse input injection
 mod shortcuts;
 mod window;
 use std::sync::{Arc, Mutex};
@@ -118,6 +119,10 @@ pub fn run() {
             speaker::update_vad_config,
             speaker::get_capture_status,
             speaker::get_audio_sample_rate,
+            // Input injection (Windows only)
+            input::send_keypress,
+            input::send_text,
+            input::get_modifier_state,
         ])
         .setup(|app| {
             // Setup main window positioning

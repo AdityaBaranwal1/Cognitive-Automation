@@ -273,6 +273,24 @@ export const useWorkflowRunner = () => {
                     }
                     context.stepOutputs.push("Action Executed");
                 }
+                // Keypress step execution - calls Rust input injection
+                else if (step.type === "keypress") {
+                    const keypressConfig = step.config as { key: string; modifiers?: string[] };
+                    const { key, modifiers = [] } = keypressConfig;
+
+                    console.log(`Sending keypress: ${key} with modifiers: ${modifiers.join(", ") || "none"}`);
+
+                    try {
+                        await invoke("send_keypress", {
+                            key,
+                            modifiers: modifiers.length > 0 ? modifiers : null
+                        });
+                        context.stepOutputs.push(`[Keypress: ${modifiers.length > 0 ? modifiers.join("+") + "+" : ""}${key}]`);
+                    } catch (e) {
+                        console.error("Keypress failed:", e);
+                        context.stepOutputs.push(`[Keypress Failed: ${e}]`);
+                    }
+                }
             }
         } catch (error) {
             console.error("Workflow execution failed:", error);

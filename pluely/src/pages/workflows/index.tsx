@@ -62,6 +62,8 @@ const WorkflowEditor = () => {
             config = { prompt: "", model: "qwen2-vl-2b-instruct", providerId: "lm-studio" } as AIStepConfig;
         } else if (type === "action_notification") {
             config = { title: "Show in Chat Overlay" } as ActionNotificationConfig;
+        } else if (type === "keypress") {
+            config = { key: "PageDown", modifiers: [] };
         }
 
         const newStep: WorkflowStep = {
@@ -304,6 +306,7 @@ const WorkflowEditor = () => {
                                                     {step.type === "capture_region" && "Capture Region"}
                                                     {step.type === "ai_process" && "AI Processing"}
                                                     {step.type === "action_notification" && "Output Action"}
+                                                    {step.type === "keypress" && "Keypress"}
                                                 </CardTitle>
                                             </CardHeader>
                                             <CardContent className="p-4 pt-2 space-y-4">
@@ -429,12 +432,73 @@ const WorkflowEditor = () => {
                                                         </Select>
                                                     </div>
                                                 )}
+
+                                                {step.type === "keypress" && (
+                                                    <div className="space-y-4">
+                                                        <div className="space-y-2">
+                                                            <Label>Key to Press</Label>
+                                                            <Select
+                                                                value={step.config.key || "PageDown"}
+                                                                onValueChange={(val) => handleUpdateStep(step.id, { key: val })}
+                                                            >
+                                                                <SelectTrigger>
+                                                                    <SelectValue placeholder="Select key" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value="PageDown">PageDown</SelectItem>
+                                                                    <SelectItem value="PageUp">PageUp</SelectItem>
+                                                                    <SelectItem value="ArrowDown">Arrow Down</SelectItem>
+                                                                    <SelectItem value="ArrowUp">Arrow Up</SelectItem>
+                                                                    <SelectItem value="ArrowLeft">Arrow Left</SelectItem>
+                                                                    <SelectItem value="ArrowRight">Arrow Right</SelectItem>
+                                                                    <SelectItem value="Enter">Enter</SelectItem>
+                                                                    <SelectItem value="Tab">Tab</SelectItem>
+                                                                    <SelectItem value="Escape">Escape</SelectItem>
+                                                                    <SelectItem value="Space">Space</SelectItem>
+                                                                    <SelectItem value="Home">Home</SelectItem>
+                                                                    <SelectItem value="End">End</SelectItem>
+                                                                    <SelectItem value="F1">F1</SelectItem>
+                                                                    <SelectItem value="F2">F2</SelectItem>
+                                                                    <SelectItem value="F3">F3</SelectItem>
+                                                                    <SelectItem value="F4">F4</SelectItem>
+                                                                    <SelectItem value="F5">F5</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <Label>Modifiers (Optional)</Label>
+                                                            <div className="flex gap-4">
+                                                                {["ctrl", "alt", "shift", "win"].map((mod) => (
+                                                                    <label key={mod} className="flex items-center gap-2 cursor-pointer">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={(step.config.modifiers || []).includes(mod)}
+                                                                            onChange={(e) => {
+                                                                                const current = step.config.modifiers || [];
+                                                                                const updated = e.target.checked
+                                                                                    ? [...current, mod]
+                                                                                    : current.filter((m: string) => m !== mod);
+                                                                                handleUpdateStep(step.id, { modifiers: updated });
+                                                                            }}
+                                                                            className="rounded"
+                                                                        />
+                                                                        <span className="text-sm capitalize">{mod}</span>
+                                                                    </label>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-xs text-muted-foreground italic">
+                                                            Sends keypresses to the active window. Use for scrolling, navigation, etc.
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </CardContent>
                                         </Card>
                                     ))}
 
-                                    <div className="flex gap-2 justify-center pt-4">
+                                    <div className="flex gap-2 justify-center pt-4 flex-wrap">
                                         <Button variant="outline" size="sm" onClick={() => handleAddStep("capture_region")}>+ Capture</Button>
+                                        <Button variant="outline" size="sm" onClick={() => handleAddStep("keypress")}>+ Keypress</Button>
                                         <Button variant="outline" size="sm" onClick={() => handleAddStep("ai_process")}>+ AI Process</Button>
                                         <Button variant="outline" size="sm" onClick={() => handleAddStep("action_notification")}>+ Output</Button>
                                     </div>
