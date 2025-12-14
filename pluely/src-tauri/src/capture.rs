@@ -610,3 +610,111 @@ pub async fn capture_screen_silent(
 
     Ok(base64_str)
 }
+
+/// Stitch multiple images vertically into a single image
+/// 
+/// # Arguments
+/// * `images_base64` - Vector of base64-encoded PNG images to stitch
+/// * `max_count` - Maximum number of images to stitch (default: 5, prevents memory issues)
+/// * `scale_factor` - Scale factor for resizing (0.0-1.0, default: 1.0 = no scaling)
+/// 
+/// # Returns
+/// Single base64-encoded PNG of the stitched result
+/// 
+/// # Design Notes
+/// - Early exit if only 1 image (just returns it unchanged)
+/// - Compatible with loop accumulation (Phase 4) - accepts any number of images
+/// - Downscales if scale_factor < 1.0 to reduce memory usage
+#[tauri::command]
+pub async fn stitch_images_vertical(
+    images_base64: Vec<String>,
+    max_count: Option<u32>,
+    scale_factor: Option<f32>,
+) -> Result<String, String> {
+    // Apply defaults
+    let max_count = max_count.unwrap_or(5) as usize;
+    let scale_factor = scale_factor.unwrap_or(1.0).clamp(0.1, 1.0);
+    
+    // Early exit: no images
+    if images_base64.is_empty() {
+        return Err("No images provided for stitching".to_string());
+    }
+    
+    // Early exit: single image, just return it (optionally scaled)
+    if images_base64.len() == 1 {
+        if (scale_factor - 1.0).abs() < 0.01 {
+            return Ok(images_base64.into_iter().next().unwrap());
+        }
+        // Fall through to apply scaling
+    }
+    
+    // Limit number of images
+    let images_to_stitch: Vec<_> = images_base64.into_iter().take(max_count).collect();
+    
+    // Decode all images
+    let mut decoded_images: Vec<image::DynamicImage> = Vec::with_capacity(images_to_stitch.len());
+    
+    for (i, base64_str) in images_to_stitch.iter().enumerate() {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(base64_str)
+            .map_err(|e| format!("Failed to decode image {}: {}", i, e))?;
+        
+        let img = image::load_from_memory(&bytes)
+            .map_err(|e| format!("Failed to parse image {}: {}", i, e))?;
+        
+        // Apply scaling if needed
+        let img = if (scale_factor - 1.0).abs() > 0.01 {
+            let new_width = (img.width() as f32 * scale_factor) as u32;
+            let new_height = (img.height() as f32 * scale_factor) as u32;
+            img.resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
+        } else {
+            img
+        };
+        
+        decoded_images.push(img);
+    }
+    
+    // Calculate total dimensions (all images must have same width, or we use max width)
+    let max_width = decoded_images.iter().map(|img| img.width()).max().unwrap_or(0);
+    let total_height: u32 = decoded_images.iter().map(|img| img.height()).sum();
+    
+    if max_width == 0 || total_height == 0 {
+        return Err("Invalid image dimensions".to_string());
+    }
+    
+    // Create the stitched image
+    let mut stitched = image::RgbaImage::new(max_width, total_height);
+    
+    let mut y_offset: u32 = 0;
+    for img in decoded_images {
+        let rgba = img.to_rgba8();
+        
+        // Center horizontally if image is narrower than max_width
+        let x_offset = (max_width - rgba.width()) / 2;
+        
+        // Copy pixels
+        for (x, y, pixel) in rgba.enumerate_pixels() {
+            if x + x_offset < max_width && y + y_offset < total_height {
+                stitched.put_pixel(x + x_offset, y + y_offset, *pixel);
+            }
+        }
+        
+        y_offset += rgba.height();
+    }
+    
+    // Encode to PNG and base64
+    let mut png_buffer = Vec::new();
+    PngEncoder::new(&mut png_buffer)
+        .write_image(
+            stitched.as_raw(),
+            stitched.width(),
+            stitched.height(),
+            ColorType::Rgba8.into(),
+        )
+        .map_err(|e| format!("Failed to encode stitched image: {}", e))?;
+    
+    let result_base64 = base64::engine::general_purpose::STANDARD.encode(png_buffer);
+    
+    Ok(result_base64)
+}
+

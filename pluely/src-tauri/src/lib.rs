@@ -87,6 +87,7 @@ pub fn run() {
             capture::wait_for_region_selection,
             capture::capture_area_silent,
             capture::capture_screen_silent,
+            capture::stitch_images_vertical,  // Phase 3: Image stitching
             capture::close_overlay_window,
             shortcuts::check_shortcuts_registered,
             shortcuts::get_registered_shortcuts,

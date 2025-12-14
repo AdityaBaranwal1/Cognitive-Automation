@@ -26,6 +26,10 @@ export interface AIStepConfig extends BaseStepConfig {
     systemPromptId?: string; // Reference to system prompt
     temperature?: number;
     maxTokens?: number;
+    // Phase 3: Image stitching settings
+    stitchImages?: boolean;      // If true, stitch all captures into one image (default: false)
+    stitchMaxCount?: number;     // Max images to stitch (default: 5)
+    stitchScaleFactor?: number;  // Scale factor 0.0-1.0 (default: 1.0 = 100%)
 }
 
 export interface SystemActionConfig extends BaseStepConfig {

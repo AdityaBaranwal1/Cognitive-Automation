@@ -16,11 +16,11 @@ export interface CapturedImage {
 }
 
 export interface ExecutionContext {
-    captures: CapturedImage[];        // Array of captured images (execution-scoped)
-    lastCapture: CapturedImage | null; // Most recent capture for convenience
-    shouldStop: boolean;               // Stop signal from stop hotkey
-    stepOutputs: string[];             // Output from each step for interpolation
-    variables: Record<string, any>;    // User-defined variables
+    captures: CapturedImage[];
+    lastCapture: CapturedImage | null;
+    shouldStop: boolean;
+    stepOutputs: string[];
+    variables: Record<string, any>;
 }
 
 const createExecutionContext = (): ExecutionContext => ({
@@ -31,7 +31,6 @@ const createExecutionContext = (): ExecutionContext => ({
     variables: {}
 });
 
-// Safety Fallback: Use this if the user hasn't configured LM Studio in Settings yet
 const FALLBACK_LM_STUDIO_PROVIDER: TYPE_PROVIDER = {
     id: "lm-studio",
     name: "LM Studio (Local)",
@@ -56,17 +55,14 @@ const FALLBACK_LM_STUDIO_PROVIDER: TYPE_PROVIDER = {
     isCustom: true
 };
 
-// --- Utility: Context Interpolation Engine ---
 const interpolateVariables = (text: string, history: string[]): string => {
     if (!text) return "";
     if (!history.length) return text;
 
     let newText = text;
-    // Replace {{prev}} with the output of the immediately preceding step
     const lastOutput = history[history.length - 1] || "";
     newText = newText.replace(/\{\{prev\}\}/g, lastOutput);
 
-    // Replace {{step[n]}} with specific step output (0-indexed)
     newText = newText.replace(/\{\{step\[(\d+)\]\}\}/g, (match, index) => {
         const i = parseInt(index, 10);
         return history[i] !== undefined ? history[i] : match;
@@ -88,45 +84,37 @@ export const useWorkflowRunner = () => {
     }, [workflows, registerCustomShortcutCallback]);
 
     const executeWorkflow = async (workflow: Workflow) => {
-        // FIX: Prevent duplicate execution by restricting to "main" window
         const currentWindow = await import("@tauri-apps/api/window").then(m => m.getCurrentWindow());
         if (currentWindow.label !== "main") {
             return;
         }
 
         console.log(`[${currentWindow.label}] 🚀 Starting workflow: ${workflow.name}`);
-        console.log(`[${currentWindow.label}] Available Providers:`, allAiProviders.map(p => p.id));
 
         let lastResult: any = null;
         let userPromptContext: string = "";
-
-        // Initialize execution context (resets captures array for each workflow run)
         const context: ExecutionContext = createExecutionContext();
 
         try {
             for (const step of workflow.steps) {
                 console.log(`Running step: ${step.type}`);
 
-                // CRITICAL FIX: Listen for BOTH legacy 'capture_region' and new 'capture_screen'
                 if (step.type === "capture_region" || step.type === "capture_screen") {
                     const captureConfig = step.config as any;
                     const { x, y, width, height, monitorIndex, mode } = captureConfig;
 
                     let base64 = "";
-                    // Support Fullscreen if explicitly requested, otherwise DEFAULT to Region Capture
                     if (mode === "fullscreen") {
                         base64 = await invoke<string>("capture_screen_silent", {
                             monitorIndex: monitorIndex ?? 0
                         });
                     } else {
-                        // Standard Region Capture (The core feature)
                         base64 = await invoke<string>("capture_area_silent", {
                             coords: { x, y, width, height },
                             monitorIndex: monitorIndex ?? 0
                         });
                     }
 
-                    // Add to captures array (multi-image accumulation)
                     const capturedImage: CapturedImage = {
                         id: crypto.randomUUID(),
                         base64: base64,
@@ -136,32 +124,26 @@ export const useWorkflowRunner = () => {
                     };
                     context.captures.push(capturedImage);
                     context.lastCapture = capturedImage;
-
                     lastResult = base64;
                     context.stepOutputs.push(`[Image Captured: ${context.captures.length}]`);
                 }
                 else if (step.type === "ai_process") {
                     if (context.captures.length === 0) {
-                        console.warn("No images captured for AI process. Proceeding with text only.");
+                        console.warn("No images captured for AI process.");
                     }
 
                     const aiConfig = step.config as AIStepConfig;
                     const providerId = aiConfig.providerId || "lm-studio";
 
-                    // 1. Resolve Provider (With Fallback)
                     let providerConfig = allAiProviders.find(p => p.id === providerId);
-
-                    // Fallback for LM Studio if registry is empty
                     if (!providerConfig && providerId === "lm-studio") {
-                        console.log("Using Fallback LM Studio Config");
                         providerConfig = FALLBACK_LM_STUDIO_PROVIDER;
                     }
-
                     if (!providerConfig) {
-                        throw new Error(`Provider ${providerId} not found. Please configure it in settings.`);
+                        throw new Error(`Provider ${providerId} not found.`);
                     }
 
-                    // 2. Get System Prompt (workflow system prompt, NOT enhanced with response settings)
+                    // Get System Prompt
                     let systemPromptContent = defaultSystemPrompt;
                     if (aiConfig.systemPromptId) {
                         try {
@@ -173,34 +155,63 @@ export const useWorkflowRunner = () => {
                         }
                     }
 
-                    // --- User Prompt Logic (Smart Defaults) ---
+                    // --- FIX: User Prompt Logic (Correct Priority) ---
+                    // Priority: 1) System Prompt wins -> use space
+                    //           2) Chain from prior AI output (NOT capture placeholders)  
+                    //           3) Default analysis
                     let rawPrompt = aiConfig.prompt;
-
                     if (!rawPrompt || rawPrompt.trim() === "") {
-                        if (context.stepOutputs.length > 0) {
-                            // Rule 1: If chained, use previous output
-                            rawPrompt = "{{prev}}";
-                        } else if (aiConfig.systemPromptId) {
-                            // Rule 2: If System Prompt exists, use neutral text (don't override it)
-                            // We use a single space because some APIs reject purely empty strings
+                        if (aiConfig.systemPromptId) {
+                            // PRIORITY 1: System prompt handles everything - minimal user text
                             rawPrompt = " ";
+                            console.log("Using system prompt only (no user prompt)");
                         } else {
-                            // Rule 3: No inputs at all? Default to generic analysis
-                            rawPrompt = "Analyze this image.";
+                            // Find last non-placeholder output
+                            const lastRealOutput = context.stepOutputs
+                                .slice()
+                                .reverse()
+                                .find(o => !o.startsWith("[Image") && !o.startsWith("[Keypress"));
+
+                            if (lastRealOutput) {
+                                // PRIORITY 2: Chain from prior AI output
+                                rawPrompt = lastRealOutput;
+                            } else {
+                                // PRIORITY 3: Default
+                                rawPrompt = "Analyze this image.";
+                            }
                         }
                     }
 
                     userPromptContext = interpolateVariables(rawPrompt, context.stepOutputs);
+                    console.log("User prompt context:", userPromptContext.substring(0, 100) + "...");
 
-                    // 3. Execute using ROBUST fetchAIResponse (Logic Reuse)
+                    // Prepare images (stitch if enabled)
+                    let imagesForAI: string[] = context.captures.map(c => c.base64);
+                    let wasStitched = false;
+
+                    if (aiConfig.stitchImages && context.captures.length > 1) {
+                        try {
+                            console.log(`🖼️ Stitching ${context.captures.length} images...`);
+                            const stitched: string = await invoke("stitch_images_vertical", {
+                                imagesBase64: imagesForAI,
+                                maxCount: aiConfig.stitchMaxCount ?? 5,
+                                scaleFactor: aiConfig.stitchScaleFactor ?? 1.0
+                            });
+                            imagesForAI = [stitched];
+                            wasStitched = true;
+                            console.log("✅ Images stitched into 1");
+                        } catch (e) {
+                            console.error("❌ Stitch failed:", e);
+                        }
+                    }
+
+                    // Execute AI
                     let fullResponse = "";
-
                     const generator = fetchAIResponse({
                         provider: providerConfig,
                         selectedProvider: {
                             provider: providerId,
                             variables: {
-                                // FIX: Keys must be lowercase to pass validation check
                                 model: aiConfig.model || "qwen/qwen3-vl-8b",
                                 api_key: providerConfig.variables?.["api_key"] || providerConfig.variables?.["API_KEY"] || "",
                                 ...(providerConfig.variables || {})
@@ -208,11 +219,8 @@ export const useWorkflowRunner = () => {
                         },
                         systemPrompt: systemPromptContent,
                         userMessage: userPromptContext,
-                        // Pass all captured images (multi-image support)
-                        imagesBase64: context.captures.map(c => c.base64),
+                        imagesBase64: imagesForAI,
                         history: [],
-                        // FIX: Skip response settings (length/language) for workflows
-                        // Workflows should use the custom system prompt as-is
                         skipResponseSettings: true
                     });
 
@@ -220,8 +228,12 @@ export const useWorkflowRunner = () => {
                         fullResponse += chunk;
                     }
 
-                    console.log("AI Response:", fullResponse);
-                    console.log(`Processed ${context.captures.length} image(s)`);
+                    const imageStatus = wasStitched
+                        ? `✅ Sent 1 STITCHED image (from ${context.captures.length} captures)`
+                        : `Sent ${imagesForAI.length} image(s)`;
+                    console.log("AI Response:", fullResponse.substring(0, 200) + "...");
+                    console.log(imageStatus);
+
                     lastResult = fullResponse;
                     context.stepOutputs.push(fullResponse);
                 }
@@ -236,7 +248,6 @@ export const useWorkflowRunner = () => {
                             new Notification("Copied to Clipboard", { body: "AI response copied" });
                         }
                     } else {
-                        // Default: Chat Overlay
                         const timestamp = Date.now();
                         const conversationId = crypto.randomUUID();
 
@@ -249,7 +260,6 @@ export const useWorkflowRunner = () => {
                                     role: "user",
                                     content: `[Workflow] ${userPromptContext}`,
                                     timestamp: timestamp,
-                                    // Attach all captured images to conversation
                                     attachedFiles: context.captures.map((capture, idx) => ({
                                         id: capture.id,
                                         name: `workflow_capture_${idx + 1}.png`,
@@ -273,22 +283,21 @@ export const useWorkflowRunner = () => {
                     }
                     context.stepOutputs.push("Action Executed");
                 }
-                // Keypress step execution - calls Rust input injection
                 else if (step.type === "keypress") {
                     const keypressConfig = step.config as { key: string; modifiers?: string[] };
                     const { key, modifiers = [] } = keypressConfig;
 
-                    console.log(`Sending keypress: ${key} with modifiers: ${modifiers.join(", ") || "none"}`);
+                    console.log(`Sending keypress: ${key}`);
 
                     try {
                         await invoke("send_keypress", {
                             key,
                             modifiers: modifiers.length > 0 ? modifiers : null
                         });
-                        context.stepOutputs.push(`[Keypress: ${modifiers.length > 0 ? modifiers.join("+") + "+" : ""}${key}]`);
+                        context.stepOutputs.push(`[Keypress: ${key}]`);
                     } catch (e) {
                         console.error("Keypress failed:", e);
-                        context.stepOutputs.push(`[Keypress Failed: ${e}]`);
+                        context.stepOutputs.push(`[Keypress Failed]`);
                     }
                 }
             }
