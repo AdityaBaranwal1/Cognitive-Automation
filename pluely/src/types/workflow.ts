@@ -7,7 +7,7 @@ export interface WorkflowTrigger {
     enabled: boolean;
 }
 
-export type StepType = "capture_screen" | "ai_process" | "system_action" | "delay" | "capture_region" | "action_notification" | "keypress";
+export type StepType = "capture_screen" | "ai_process" | "system_action" | "delay" | "capture_region" | "action_notification" | "keypress" | "wait" | "loop";
 
 export interface BaseStepConfig {
     [key: string]: any;
@@ -47,11 +47,22 @@ export interface KeypressStepConfig extends BaseStepConfig {
     modifiers?: string[];  // Optional modifiers: ["ctrl"], ["ctrl", "shift"], etc.
 }
 
+// Phase 4: Wait step configuration
+export interface WaitStepConfig extends BaseStepConfig {
+    durationMs: number;    // Milliseconds to wait (100-10000)
+}
+
+// Phase 4: Loop step configuration
+export interface LoopStepConfig extends BaseStepConfig {
+    iterations: number;    // Number of times to repeat (1-100)
+    children: WorkflowStep[];  // Nested steps to execute in each iteration
+}
+
 export interface WorkflowStep {
     id: string;
     type: StepType;
     name: string;
-    config: CaptureStepConfig | AIStepConfig | SystemActionConfig | DelayStepConfig | KeypressStepConfig;
+    config: CaptureStepConfig | AIStepConfig | SystemActionConfig | DelayStepConfig | KeypressStepConfig | WaitStepConfig | LoopStepConfig;
 }
 
 export interface Workflow {

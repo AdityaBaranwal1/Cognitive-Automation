@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useApp } from "@/contexts";
 import { useGlobalShortcuts } from "./useGlobalShortcuts";
-import { Workflow, AIStepConfig } from "@/types";
+import { Workflow, AIStepConfig, WaitStepConfig, LoopStepConfig, WorkflowStep } from "@/types";
 import { saveConversation, generateMessageId, generateConversationTitle, getAllSystemPrompts, fetchAIResponse } from "@/lib";
 import { TYPE_PROVIDER } from "@/types/provider.type";
 
@@ -83,6 +83,87 @@ export const useWorkflowRunner = () => {
         });
     }, [workflows, registerCustomShortcutCallback]);
 
+    // Helper function to execute a single step (used for main steps and loop children)
+    const executeStep = async (step: WorkflowStep, context: ExecutionContext, allAiProviders: TYPE_PROVIDER[], defaultSystemPrompt: string): Promise<any> => {
+        console.log(`Running step: ${step.type}`);
+        let lastResult: any = null;
+
+        if (step.type === "capture_region" || step.type === "capture_screen") {
+            const captureConfig = step.config as any;
+            const { x, y, width, height, monitorIndex, mode } = captureConfig;
+
+            let base64 = "";
+            if (mode === "fullscreen") {
+                base64 = await invoke<string>("capture_screen_silent", {
+                    monitorIndex: monitorIndex ?? 0
+                });
+            } else {
+                base64 = await invoke<string>("capture_area_silent", {
+                    coords: { x, y, width, height },
+                    monitorIndex: monitorIndex ?? 0
+                });
+            }
+
+            const capturedImage: CapturedImage = {
+                id: crypto.randomUUID(),
+                base64: base64,
+                timestamp: Date.now(),
+                source: mode === "fullscreen" ? "fullscreen" : "region",
+                metadata: mode !== "fullscreen" ? { x, y, width, height } : undefined
+            };
+            context.captures.push(capturedImage);
+            context.lastCapture = capturedImage;
+            lastResult = base64;
+            context.stepOutputs.push(`[Image Captured: ${context.captures.length}]`);
+        }
+        else if (step.type === "keypress") {
+            const keypressConfig = step.config as { key: string; modifiers?: string[] };
+            const { key, modifiers = [] } = keypressConfig;
+
+            console.log(`⌨️ Sending keypress: ${key}`);
+            try {
+                await invoke("send_keypress", {
+                    key,
+                    modifiers: modifiers.length > 0 ? modifiers : null
+                });
+                context.stepOutputs.push(`[Keypress: ${key}]`);
+            } catch (e) {
+                console.error("Keypress failed:", e);
+                context.stepOutputs.push(`[Keypress Failed]`);
+            }
+        }
+        // Phase 4: Wait step - delay execution
+        else if (step.type === "wait") {
+            const waitConfig = step.config as WaitStepConfig;
+            console.log(`⏳ Waiting ${waitConfig.durationMs}ms...`);
+            await new Promise(resolve => setTimeout(resolve, waitConfig.durationMs));
+            context.stepOutputs.push(`[Wait: ${waitConfig.durationMs}ms]`);
+        }
+        // Phase 4: Loop step - repeat children N times
+        else if (step.type === "loop") {
+            const loopConfig = step.config as LoopStepConfig;
+            console.log(`🔄 Starting loop (${loopConfig.iterations} iterations)`);
+
+            for (let i = 0; i < loopConfig.iterations; i++) {
+                if (context.shouldStop) {
+                    console.log("🛑 Loop stopped by user");
+                    break;
+                }
+
+                console.log(`  Loop ${i + 1}/${loopConfig.iterations}`);
+
+                for (const childStep of loopConfig.children || []) {
+                    if (context.shouldStop) break;
+                    await executeStep(childStep, context, allAiProviders, defaultSystemPrompt);
+                }
+            }
+
+            context.stepOutputs.push(`[Loop: ${loopConfig.iterations}x completed]`);
+        }
+
+        return lastResult;
+    };
+
     const executeWorkflow = async (workflow: Workflow) => {
         const currentWindow = await import("@tauri-apps/api/window").then(m => m.getCurrentWindow());
         if (currentWindow.label !== "main") {
@@ -97,37 +178,10 @@ export const useWorkflowRunner = () => {
 
         try {
             for (const step of workflow.steps) {
-                console.log(`Running step: ${step.type}`);
+                // Handle steps that need special processing in main loop
+                if (step.type === "ai_process") {
+                    console.log(`Running step: ${step.type}`);
 
-                if (step.type === "capture_region" || step.type === "capture_screen") {
-                    const captureConfig = step.config as any;
-                    const { x, y, width, height, monitorIndex, mode } = captureConfig;
-
-                    let base64 = "";
-                    if (mode === "fullscreen") {
-                        base64 = await invoke<string>("capture_screen_silent", {
-                            monitorIndex: monitorIndex ?? 0
-                        });
-                    } else {
-                        base64 = await invoke<string>("capture_area_silent", {
-                            coords: { x, y, width, height },
-                            monitorIndex: monitorIndex ?? 0
-                        });
-                    }
-
-                    const capturedImage: CapturedImage = {
-                        id: crypto.randomUUID(),
-                        base64: base64,
-                        timestamp: Date.now(),
-                        source: mode === "fullscreen" ? "fullscreen" : "region",
-                        metadata: mode !== "fullscreen" ? { x, y, width, height } : undefined
-                    };
-                    context.captures.push(capturedImage);
-                    context.lastCapture = capturedImage;
-                    lastResult = base64;
-                    context.stepOutputs.push(`[Image Captured: ${context.captures.length}]`);
-                }
-                else if (step.type === "ai_process") {
                     if (context.captures.length === 0) {
                         console.warn("No images captured for AI process.");
                     }
@@ -143,7 +197,6 @@ export const useWorkflowRunner = () => {
                         throw new Error(`Provider ${providerId} not found.`);
                     }
 
-                    // Get System Prompt
                     let systemPromptContent = defaultSystemPrompt;
                     if (aiConfig.systemPromptId) {
                         try {
@@ -155,28 +208,20 @@ export const useWorkflowRunner = () => {
                         }
                     }
 
-                    // --- FIX: User Prompt Logic (Correct Priority) ---
-                    // Priority: 1) System Prompt wins -> use space
-                    //           2) Chain from prior AI output (NOT capture placeholders)  
-                    //           3) Default analysis
                     let rawPrompt = aiConfig.prompt;
                     if (!rawPrompt || rawPrompt.trim() === "") {
                         if (aiConfig.systemPromptId) {
-                            // PRIORITY 1: System prompt handles everything - minimal user text
                             rawPrompt = " ";
                             console.log("Using system prompt only (no user prompt)");
                         } else {
-                            // Find last non-placeholder output
                             const lastRealOutput = context.stepOutputs
                                 .slice()
                                 .reverse()
-                                .find(o => !o.startsWith("[Image") && !o.startsWith("[Keypress"));
+                                .find(o => !o.startsWith("[Image") && !o.startsWith("[Keypress") && !o.startsWith("[Wait") && !o.startsWith("[Loop"));
 
                             if (lastRealOutput) {
-                                // PRIORITY 2: Chain from prior AI output
                                 rawPrompt = lastRealOutput;
                             } else {
-                                // PRIORITY 3: Default
                                 rawPrompt = "Analyze this image.";
                             }
                         }
@@ -185,7 +230,6 @@ export const useWorkflowRunner = () => {
                     userPromptContext = interpolateVariables(rawPrompt, context.stepOutputs);
                     console.log("User prompt context:", userPromptContext.substring(0, 100) + "...");
 
-                    // Prepare images (stitch if enabled)
                     let imagesForAI: string[] = context.captures.map(c => c.base64);
                     let wasStitched = false;
 
@@ -205,7 +249,6 @@ export const useWorkflowRunner = () => {
                         }
                     }
 
-                    // Execute AI
                     let fullResponse = "";
                     const generator = fetchAIResponse({
                         provider: providerConfig,
@@ -238,6 +281,8 @@ export const useWorkflowRunner = () => {
                     context.stepOutputs.push(fullResponse);
                 }
                 else if (step.type === "action_notification" || step.type === "system_action") {
+                    console.log(`Running step: ${step.type}`);
+
                     const outputText = typeof lastResult === "string" ? lastResult : JSON.stringify(lastResult);
                     const actionConfig = step.config as any;
                     const isCopy = actionConfig.title === "Copy to Clipboard" || actionConfig.action === "copy_to_clipboard";
@@ -283,22 +328,10 @@ export const useWorkflowRunner = () => {
                     }
                     context.stepOutputs.push("Action Executed");
                 }
-                else if (step.type === "keypress") {
-                    const keypressConfig = step.config as { key: string; modifiers?: string[] };
-                    const { key, modifiers = [] } = keypressConfig;
-
-                    console.log(`Sending keypress: ${key}`);
-
-                    try {
-                        await invoke("send_keypress", {
-                            key,
-                            modifiers: modifiers.length > 0 ? modifiers : null
-                        });
-                        context.stepOutputs.push(`[Keypress: ${key}]`);
-                    } catch (e) {
-                        console.error("Keypress failed:", e);
-                        context.stepOutputs.push(`[Keypress Failed]`);
-                    }
+                else {
+                    // Use helper for capture, keypress, wait, loop
+                    const result = await executeStep(step, context, allAiProviders, defaultSystemPrompt);
+                    if (result) lastResult = result;
                 }
             }
         } catch (error) {

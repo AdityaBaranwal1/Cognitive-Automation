@@ -64,6 +64,10 @@ const WorkflowEditor = () => {
             config = { title: "Show in Chat Overlay" } as ActionNotificationConfig;
         } else if (type === "keypress") {
             config = { key: "PageDown", modifiers: [] };
+        } else if (type === "wait") {
+            config = { durationMs: 500 };
+        } else if (type === "loop") {
+            config = { iterations: 3, children: [] };
         }
 
         const newStep: WorkflowStep = {
@@ -307,6 +311,8 @@ const WorkflowEditor = () => {
                                                     {step.type === "ai_process" && "AI Processing"}
                                                     {step.type === "action_notification" && "Output Action"}
                                                     {step.type === "keypress" && "Keypress"}
+                                                    {step.type === "wait" && "⏳ Wait"}
+                                                    {step.type === "loop" && "🔄 Loop"}
                                                 </CardTitle>
                                             </CardHeader>
                                             <CardContent className="p-4 pt-2 space-y-4">
@@ -492,6 +498,63 @@ const WorkflowEditor = () => {
                                                         </div>
                                                     </div>
                                                 )}
+
+                                                {step.type === "wait" && (
+                                                    <div className="space-y-4">
+                                                        <div className="space-y-2">
+                                                            <Label>Duration (ms)</Label>
+                                                            <Select
+                                                                value={String(step.config.durationMs || 500)}
+                                                                onValueChange={(val) => handleUpdateStep(step.id, { durationMs: parseInt(val) })}
+                                                            >
+                                                                <SelectTrigger>
+                                                                    <SelectValue placeholder="Select duration" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value="100">100ms</SelectItem>
+                                                                    <SelectItem value="250">250ms</SelectItem>
+                                                                    <SelectItem value="500">500ms (Default)</SelectItem>
+                                                                    <SelectItem value="1000">1 second</SelectItem>
+                                                                    <SelectItem value="2000">2 seconds</SelectItem>
+                                                                    <SelectItem value="3000">3 seconds</SelectItem>
+                                                                    <SelectItem value="5000">5 seconds</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                        <div className="text-xs text-muted-foreground italic">
+                                                            Pauses execution. Use between captures to allow page scrolling.
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {step.type === "loop" && (
+                                                    <div className="space-y-4">
+                                                        <div className="space-y-2">
+                                                            <Label>Iterations</Label>
+                                                            <Select
+                                                                value={String(step.config.iterations || 3)}
+                                                                onValueChange={(val) => handleUpdateStep(step.id, { iterations: parseInt(val) })}
+                                                            >
+                                                                <SelectTrigger>
+                                                                    <SelectValue placeholder="Select iterations" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value="2">2 times</SelectItem>
+                                                                    <SelectItem value="3">3 times</SelectItem>
+                                                                    <SelectItem value="5">5 times</SelectItem>
+                                                                    <SelectItem value="10">10 times</SelectItem>
+                                                                    <SelectItem value="15">15 times</SelectItem>
+                                                                    <SelectItem value="20">20 times</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                        <div className="border-l-2 border-dashed border-primary/30 pl-4 ml-2 text-xs text-muted-foreground">
+                                                            <p className="font-medium mb-1">Loop Children: {(step.config.children || []).length} steps</p>
+                                                            <p className="italic">Nested steps will be executed in each iteration.</p>
+                                                            <p className="mt-1">To add children, manually edit the workflow JSON for now.</p>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </CardContent>
                                         </Card>
                                     ))}
@@ -499,6 +562,8 @@ const WorkflowEditor = () => {
                                     <div className="flex gap-2 justify-center pt-4 flex-wrap">
                                         <Button variant="outline" size="sm" onClick={() => handleAddStep("capture_region")}>+ Capture</Button>
                                         <Button variant="outline" size="sm" onClick={() => handleAddStep("keypress")}>+ Keypress</Button>
+                                        <Button variant="outline" size="sm" onClick={() => handleAddStep("wait")}>+ Wait</Button>
+                                        <Button variant="outline" size="sm" onClick={() => handleAddStep("loop")}>+ Loop</Button>
                                         <Button variant="outline" size="sm" onClick={() => handleAddStep("ai_process")}>+ AI Process</Button>
                                         <Button variant="outline" size="sm" onClick={() => handleAddStep("action_notification")}>+ Output</Button>
                                     </div>
