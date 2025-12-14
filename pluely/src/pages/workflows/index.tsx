@@ -548,10 +548,84 @@ const WorkflowEditor = () => {
                                                                 </SelectContent>
                                                             </Select>
                                                         </div>
-                                                        <div className="border-l-2 border-dashed border-primary/30 pl-4 ml-2 text-xs text-muted-foreground">
-                                                            <p className="font-medium mb-1">Loop Children: {(step.config.children || []).length} steps</p>
-                                                            <p className="italic">Nested steps will be executed in each iteration.</p>
-                                                            <p className="mt-1">To add children, manually edit the workflow JSON for now.</p>
+                                                        <div className="border-l-2 border-dashed border-primary/30 pl-4 ml-2 space-y-2">
+                                                            <p className="text-xs font-medium">Loop Children: {(step.config.children || []).length} steps</p>
+
+                                                            {/* List existing children */}
+                                                            {(step.config.children || []).map((child: any, childIdx: number) => (
+                                                                <div key={child.id} className="flex items-center gap-2 text-xs bg-muted/50 p-2 rounded">
+                                                                    <span className="text-muted-foreground">{childIdx + 1}.</span>
+                                                                    <span className="flex-1">
+                                                                        {child.type === "capture_region" && "📸 Capture"}
+                                                                        {child.type === "keypress" && `⌨️ ${child.config?.key || "Key"}`}
+                                                                        {child.type === "wait" && `⏳ ${child.config?.durationMs || 500}ms`}
+                                                                    </span>
+                                                                    <Button
+                                                                        size="icon"
+                                                                        variant="ghost"
+                                                                        className="h-5 w-5 text-destructive"
+                                                                        onClick={() => {
+                                                                            const newChildren = (step.config.children || []).filter((_: any, i: number) => i !== childIdx);
+                                                                            handleUpdateStep(step.id, { children: newChildren });
+                                                                        }}
+                                                                    >
+                                                                        <Trash2 className="h-3 w-3" />
+                                                                    </Button>
+                                                                </div>
+                                                            ))}
+
+                                                            {/* Add child buttons */}
+                                                            <div className="flex gap-1 flex-wrap pt-1">
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-6 text-xs"
+                                                                    onClick={() => {
+                                                                        const newChild = {
+                                                                            id: crypto.randomUUID(),
+                                                                            type: "capture_region" as const,
+                                                                            name: "Loop Capture",
+                                                                            config: { x: 100, y: 100, width: 400, height: 300, mode: "area" }
+                                                                        };
+                                                                        handleUpdateStep(step.id, { children: [...(step.config.children || []), newChild] });
+                                                                    }}
+                                                                >
+                                                                    + Capture
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-6 text-xs"
+                                                                    onClick={() => {
+                                                                        const newChild = {
+                                                                            id: crypto.randomUUID(),
+                                                                            type: "keypress" as const,
+                                                                            name: "Loop Keypress",
+                                                                            config: { key: "PageDown", modifiers: [] }
+                                                                        };
+                                                                        handleUpdateStep(step.id, { children: [...(step.config.children || []), newChild] });
+                                                                    }}
+                                                                >
+                                                                    + PageDown
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-6 text-xs"
+                                                                    onClick={() => {
+                                                                        const newChild = {
+                                                                            id: crypto.randomUUID(),
+                                                                            type: "wait" as const,
+                                                                            name: "Loop Wait",
+                                                                            config: { durationMs: 500 }
+                                                                        };
+                                                                        handleUpdateStep(step.id, { children: [...(step.config.children || []), newChild] });
+                                                                    }}
+                                                                >
+                                                                    + Wait 500ms
+                                                                </Button>
+                                                            </div>
+                                                            <p className="text-xs text-muted-foreground italic">Each iteration runs these steps in order.</p>
                                                         </div>
                                                     </div>
                                                 )}
