@@ -123,6 +123,43 @@ const WorkflowEditor = () => {
         }
     };
 
+    // Pick region for a capture step inside a loop
+    const handlePickLoopChildRegion = async (loopStepId: string, childIdx: number) => {
+        if (!selectedWorkflow) return;
+        try {
+            setIsCapturing(true);
+            await invoke("toggle_dashboard");
+            await invoke("start_region_selection");
+            const coords = await invoke<any>("wait_for_region_selection");
+
+            // Find the loop step and update the child's config
+            const loopStep = selectedWorkflow.steps.find(s => s.id === loopStepId);
+            if (loopStep && loopStep.config.children) {
+                const newChildren = [...loopStep.config.children];
+                newChildren[childIdx] = {
+                    ...newChildren[childIdx],
+                    config: {
+                        ...newChildren[childIdx].config,
+                        x: coords.x,
+                        y: coords.y,
+                        width: coords.width,
+                        height: coords.height,
+                        monitorIndex: coords.monitor_index,
+                        mode: "area"
+                    }
+                };
+                handleUpdateStep(loopStepId, { children: newChildren });
+            }
+
+            await invoke("open_dashboard");
+            setIsCapturing(false);
+        } catch (error) {
+            console.error("Failed to pick loop child region:", error);
+            setIsCapturing(false);
+            await invoke("open_dashboard");
+        }
+    };
+
     const fetchModelsForProvider = async (providerId: string) => {
         setIsLoadingModels(providerId);
         try {
@@ -556,10 +593,30 @@ const WorkflowEditor = () => {
                                                                 <div key={child.id} className="flex items-center gap-2 text-xs bg-muted/50 p-2 rounded">
                                                                     <span className="text-muted-foreground">{childIdx + 1}.</span>
                                                                     <span className="flex-1">
-                                                                        {child.type === "capture_region" && "📸 Capture"}
+                                                                        {child.type === "capture_region" && (
+                                                                            <span className="flex items-center gap-2">
+                                                                                📸 Capture
+                                                                                {child.config?.width > 0 && (
+                                                                                    <span className="text-muted-foreground text-[10px]">
+                                                                                        ({child.config.width}x{child.config.height})
+                                                                                    </span>
+                                                                                )}
+                                                                            </span>
+                                                                        )}
                                                                         {child.type === "keypress" && `⌨️ ${child.config?.key || "Key"}`}
                                                                         {child.type === "wait" && `⏳ ${child.config?.durationMs || 500}ms`}
                                                                     </span>
+                                                                    {child.type === "capture_region" && (
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            className="h-5 text-[10px] px-2"
+                                                                            onClick={() => handlePickLoopChildRegion(step.id, childIdx)}
+                                                                            disabled={isCapturing}
+                                                                        >
+                                                                            {child.config?.width > 0 ? "📍 Edit" : "📍 Pick"}
+                                                                        </Button>
+                                                                    )}
                                                                     <Button
                                                                         size="icon"
                                                                         variant="ghost"
