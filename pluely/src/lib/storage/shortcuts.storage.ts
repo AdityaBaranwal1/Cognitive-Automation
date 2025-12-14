@@ -69,10 +69,19 @@ export const getShortcutsConfig = (): ShortcutsConfig => {
       try {
         const workflows = JSON.parse(savedWorkflows);
         workflows.forEach((w: any) => {
+          // Register trigger hotkey
           if (w.trigger?.type === "hotkey" && w.trigger?.enabled && w.trigger?.key) {
             bindings[w.id] = {
               action: w.id,
               key: w.trigger.key,
+              enabled: true,
+            };
+          }
+          // Phase 5: Register stop hotkey
+          if (w.trigger?.stopKey) {
+            bindings[`${w.id}_stop`] = {
+              action: `${w.id}_stop`,
+              key: w.trigger.stopKey,
               enabled: true,
             };
           }

@@ -2,8 +2,9 @@ export type WorkflowTriggerType = "hotkey" | "keyword" | "manual";
 
 export interface WorkflowTrigger {
     type: WorkflowTriggerType;
-    key?: string; // For hotkey
-    keyword?: string; // For keyword
+    key?: string;      // Trigger hotkey
+    stopKey?: string;  // Phase 5: Stop hotkey for interrupting loops
+    keyword?: string;  // For keyword
     enabled: boolean;
 }
 

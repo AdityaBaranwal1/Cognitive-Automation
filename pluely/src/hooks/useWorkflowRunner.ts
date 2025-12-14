@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useApp } from "@/contexts";
 import { useGlobalShortcuts } from "./useGlobalShortcuts";
@@ -73,7 +73,10 @@ const interpolateVariables = (text: string, history: string[]): string => {
 
 export const useWorkflowRunner = () => {
     const { workflows, systemPrompt: defaultSystemPrompt, allAiProviders } = useApp();
-    const { registerCustomShortcutCallback } = useGlobalShortcuts();
+    const { registerCustomShortcutCallback, unregisterCustomShortcutCallback } = useGlobalShortcuts();
+
+    // Phase 5: Ref to signal stop from hotkey callback
+    const shouldStopRef = useRef(false);
 
     useEffect(() => {
         workflows.forEach(workflow => {
@@ -176,8 +179,25 @@ export const useWorkflowRunner = () => {
         let userPromptContext: string = "";
         const context: ExecutionContext = createExecutionContext();
 
+        // Phase 5: Reset stop flag and register stop callback
+        shouldStopRef.current = false;
+        const stopActionId = `${workflow.id}_stop`;
+        if (workflow.trigger.stopKey) {
+            registerCustomShortcutCallback(stopActionId, () => {
+                console.log("🛑 Stop key pressed!");
+                shouldStopRef.current = true;
+            });
+        }
+
         try {
             for (const step of workflow.steps) {
+                // Phase 5: Sync stop flag from ref to context
+                context.shouldStop = shouldStopRef.current;
+                if (context.shouldStop) {
+                    console.log("🛑 Workflow stopped by user");
+                    break;
+                }
+
                 // Handle steps that need special processing in main loop
                 if (step.type === "ai_process") {
                     console.log(`Running step: ${step.type}`);
@@ -330,12 +350,18 @@ export const useWorkflowRunner = () => {
                 }
                 else {
                     // Use helper for capture, keypress, wait, loop
+                    context.shouldStop = shouldStopRef.current; // Sync before each step
                     const result = await executeStep(step, context, allAiProviders, defaultSystemPrompt);
                     if (result) lastResult = result;
                 }
             }
         } catch (error) {
             console.error("Workflow execution failed:", error);
+        } finally {
+            // Phase 5: Cleanup stop callback
+            if (workflow.trigger.stopKey) {
+                unregisterCustomShortcutCallback(stopActionId);
+            }
         }
     };
 
