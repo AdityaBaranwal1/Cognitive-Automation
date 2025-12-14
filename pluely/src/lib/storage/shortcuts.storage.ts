@@ -45,20 +45,44 @@ export const getDefaultShortcutsConfig = (): ShortcutsConfig => {
 
 /**
  * Get shortcuts configuration from localStorage
+ * Also includes workflow hotkey bindings for proper startup initialization
  */
 export const getShortcutsConfig = (): ShortcutsConfig => {
   try {
     const stored = localStorage.getItem(STORAGE_KEYS.SHORTCUTS);
+    const defaults = getDefaultShortcutsConfig();
+
+    let bindings = { ...defaults.bindings };
+    let customActions: ShortcutAction[] = [];
+
+    // Merge stored shortcuts
     if (stored) {
       const parsed = JSON.parse(stored);
-      // Merge with defaults to ensure all default actions are present
-      const defaults = getDefaultShortcutsConfig();
-      return {
-        bindings: { ...defaults.bindings, ...parsed.bindings },
-        customActions: parsed.customActions || [],
-      };
+      bindings = { ...bindings, ...parsed.bindings };
+      customActions = parsed.customActions || [];
     }
-    return getDefaultShortcutsConfig();
+
+    // CRITICAL FIX: Also include workflow hotkey bindings
+    // This ensures workflow shortcuts are registered on app startup
+    const savedWorkflows = localStorage.getItem(STORAGE_KEYS.WORKFLOWS);
+    if (savedWorkflows) {
+      try {
+        const workflows = JSON.parse(savedWorkflows);
+        workflows.forEach((w: any) => {
+          if (w.trigger?.type === "hotkey" && w.trigger?.enabled && w.trigger?.key) {
+            bindings[w.id] = {
+              action: w.id,
+              key: w.trigger.key,
+              enabled: true,
+            };
+          }
+        });
+      } catch (e) {
+        console.error("Failed to parse workflows for shortcuts:", e);
+      }
+    }
+
+    return { bindings, customActions };
   } catch (error) {
     console.error("Failed to get shortcuts config:", error);
     return getDefaultShortcutsConfig();
