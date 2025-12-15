@@ -8,7 +8,7 @@ export interface WorkflowTrigger {
     enabled: boolean;
 }
 
-export type StepType = "capture_screen" | "ai_process" | "system_action" | "delay" | "capture_region" | "action_notification" | "keypress" | "wait" | "loop";
+export type StepType = "capture_screen" | "ai_process" | "system_action" | "delay" | "capture_region" | "action_notification" | "keypress" | "wait" | "loop" | "await_input";
 
 export interface BaseStepConfig {
     [key: string]: any;
@@ -59,11 +59,26 @@ export interface LoopStepConfig extends BaseStepConfig {
     children: WorkflowStep[];  // Nested steps to execute in each iteration
 }
 
+// Phase 6B: Await Input key action mapping
+export interface AwaitInputKeyAction {
+    key: string;           // Hotkey like "F4", "F5", "F6"
+    action: "run_workflow" | "keypress" | "continue" | "break";
+    workflowId?: string;   // If action = "run_workflow", the sub-workflow to run
+    keypressConfig?: { key: string; modifiers?: string[] };  // If action = "keypress"
+    label?: string;        // User-friendly label like "Capture Tab", "Next Tab"
+}
+
+// Phase 6B: Await Input step configuration (Dispatch Node)
+export interface AwaitInputStepConfig extends BaseStepConfig {
+    timeout?: number;      // Optional timeout in ms (0 = no timeout)
+    keymap: AwaitInputKeyAction[];  // Array of key->action mappings
+}
+
 export interface WorkflowStep {
     id: string;
     type: StepType;
     name: string;
-    config: CaptureStepConfig | AIStepConfig | SystemActionConfig | DelayStepConfig | KeypressStepConfig | WaitStepConfig | LoopStepConfig;
+    config: CaptureStepConfig | AIStepConfig | SystemActionConfig | DelayStepConfig | KeypressStepConfig | WaitStepConfig | LoopStepConfig | AwaitInputStepConfig;
 }
 
 export interface Workflow {

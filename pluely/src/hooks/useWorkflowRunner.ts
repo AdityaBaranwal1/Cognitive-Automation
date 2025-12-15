@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useApp } from "@/contexts";
 import { useGlobalShortcuts } from "./useGlobalShortcuts";
-import { Workflow, AIStepConfig, WaitStepConfig, LoopStepConfig, WorkflowStep } from "@/types";
+import { Workflow, AIStepConfig, WaitStepConfig, LoopStepConfig, WorkflowStep, AwaitInputStepConfig } from "@/types";
 import { saveConversation, generateMessageId, generateConversationTitle, getAllSystemPrompts, fetchAIResponse } from "@/lib";
 import { TYPE_PROVIDER } from "@/types/provider.type";
 
@@ -75,7 +75,7 @@ export const useWorkflowRunner = () => {
     const { workflows, systemPrompt: defaultSystemPrompt, allAiProviders } = useApp();
     const { registerCustomShortcutCallback, unregisterCustomShortcutCallback } = useGlobalShortcuts();
 
-    // Phase 5: Ref to signal stop from hotkey callback
+    // Ref to signal stop from hotkey callback
     const shouldStopRef = useRef(false);
 
     useEffect(() => {
@@ -135,14 +135,14 @@ export const useWorkflowRunner = () => {
                 context.stepOutputs.push(`[Keypress Failed]`);
             }
         }
-        // Phase 4: Wait step - delay execution
+        // Wait step - delay execution
         else if (step.type === "wait") {
             const waitConfig = step.config as WaitStepConfig;
             console.log(`⏳ Waiting ${waitConfig.durationMs}ms...`);
             await new Promise(resolve => setTimeout(resolve, waitConfig.durationMs));
             context.stepOutputs.push(`[Wait: ${waitConfig.durationMs}ms]`);
         }
-        // Phase 4: Loop step - repeat children N times
+        // Loop step - repeat children N times
         else if (step.type === "loop") {
             const loopConfig = step.config as LoopStepConfig;
             console.log(`🔄 Starting loop (${loopConfig.iterations} iterations)`);
@@ -162,6 +162,91 @@ export const useWorkflowRunner = () => {
             }
 
             context.stepOutputs.push(`[Loop: ${loopConfig.iterations}x completed]`);
+        }
+        // Phase 6B: Await Input step - dispatch center for human-in-the-loop
+        else if (step.type === "await_input") {
+            const awaitConfig = step.config as AwaitInputStepConfig;
+            console.log(`⏸️ Await Input: Listening for keys...`);
+
+            // Track which key was pressed
+            let awaitKeyPressed: string | null = null;
+
+            // Register temporary callbacks for each key in the keymap
+            const cleanupFns: (() => void)[] = [];
+            for (const keyAction of awaitConfig.keymap) {
+                const callbackId = `await_${step.id}_${keyAction.key}`;
+                registerCustomShortcutCallback(callbackId, () => {
+                    console.log(`🎯 Await: Key ${keyAction.key} pressed → ${keyAction.action}`);
+                    awaitKeyPressed = keyAction.key;
+                });
+                cleanupFns.push(() => unregisterCustomShortcutCallback(callbackId));
+            }
+
+            // Main await loop - stays in "listening mode" until continue/break
+            let continueListening = true;
+            while (continueListening && !context.shouldStop) {
+                // Wait for a keypress
+                awaitKeyPressed = null;
+                const startTime = Date.now();
+                const timeout = awaitConfig.timeout || 0;
+
+                while (!awaitKeyPressed && !context.shouldStop) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    if (timeout > 0 && Date.now() - startTime > timeout) {
+                        console.log("⏰ Await Input timed out");
+                        continueListening = false;
+                        break;
+                    }
+                }
+
+                if (!awaitKeyPressed || context.shouldStop) break;
+
+                // Find the action for this key
+                const pressedAction = awaitConfig.keymap.find(a => a.key === awaitKeyPressed);
+                if (!pressedAction) continue;
+
+                // Handle the action
+                if (pressedAction.action === "run_workflow") {
+                    // Run sub-workflow inline, sharing context
+                    const subWorkflow = workflows.find(w => w.id === pressedAction.workflowId);
+                    if (subWorkflow) {
+                        console.log(`📁 Running sub-workflow: ${subWorkflow.name}`);
+                        for (const subStep of subWorkflow.steps) {
+                            if (context.shouldStop) break;
+                            await executeStep(subStep, context, allAiProviders, defaultSystemPrompt);
+                        }
+                    }
+                    // After sub-workflow, continue listening (loop back)
+                }
+                else if (pressedAction.action === "keypress" && pressedAction.keypressConfig) {
+                    // Send keypress to OS
+                    try {
+                        await invoke("send_keypress", {
+                            key: pressedAction.keypressConfig.key,
+                            modifiers: pressedAction.keypressConfig.modifiers || null
+                        });
+                        console.log(`⌨️ Sent keypress: ${pressedAction.keypressConfig.key}`);
+                    } catch (e) {
+                        console.error("Keypress failed:", e);
+                    }
+                    // Continue listening
+                }
+                else if (pressedAction.action === "continue") {
+                    // Exit await, continue to next workflow step
+                    console.log("➡️ Await Input: Continue to next step");
+                    continueListening = false;
+                }
+                else if (pressedAction.action === "break") {
+                    // Stop entire workflow
+                    console.log("🛑 Await Input: Breaking workflow");
+                    context.shouldStop = true;
+                    continueListening = false;
+                }
+            }
+
+            // Cleanup all temporary callbacks
+            cleanupFns.forEach(fn => fn());
+            context.stepOutputs.push(`[Await Input completed]`);
         }
 
         return lastResult;
@@ -191,7 +276,7 @@ export const useWorkflowRunner = () => {
 
         try {
             for (const step of workflow.steps) {
-                // Phase 5: Sync stop flag from ref to context
+                // Sync stop flag from ref to context
                 context.shouldStop = shouldStopRef.current;
                 if (context.shouldStop) {
                     console.log("🛑 Workflow stopped by user");
@@ -237,7 +322,7 @@ export const useWorkflowRunner = () => {
                             const lastRealOutput = context.stepOutputs
                                 .slice()
                                 .reverse()
-                                .find(o => !o.startsWith("[Image") && !o.startsWith("[Keypress") && !o.startsWith("[Wait") && !o.startsWith("[Loop"));
+                                .find(o => !o.startsWith("[Image") && !o.startsWith("[Keypress") && !o.startsWith("[Wait") && !o.startsWith("[Loop") && !o.startsWith("[Await"));
 
                             if (lastRealOutput) {
                                 rawPrompt = lastRealOutput;
@@ -349,7 +434,7 @@ export const useWorkflowRunner = () => {
                     context.stepOutputs.push("Action Executed");
                 }
                 else {
-                    // Use helper for capture, keypress, wait, loop
+                    // Use helper for capture, keypress, wait, loop, await_input
                     context.shouldStop = shouldStopRef.current; // Sync before each step
                     const result = await executeStep(step, context, allAiProviders, defaultSystemPrompt);
                     if (result) lastResult = result;

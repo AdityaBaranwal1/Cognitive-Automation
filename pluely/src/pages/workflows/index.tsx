@@ -68,8 +68,9 @@ const WorkflowEditor = () => {
             config = { durationMs: 500 };
         } else if (type === "loop") {
             config = { iterations: 3, children: [] };
+        } else if (type === "await_input") {
+            config = { timeout: 0, keymap: [{ key: "F6", action: "continue", label: "Done" }] };
         }
-
         const newStep: WorkflowStep = {
             id: crypto.randomUUID(),
             type,
@@ -360,6 +361,7 @@ const WorkflowEditor = () => {
                                                     {step.type === "keypress" && "Keypress"}
                                                     {step.type === "wait" && "⏳ Wait"}
                                                     {step.type === "loop" && "🔄 Loop"}
+                                                    {step.type === "await_input" && "⏸️ Await Input"}
                                                 </CardTitle>
                                             </CardHeader>
                                             <CardContent className="p-4 pt-2 space-y-4">
@@ -705,6 +707,7 @@ const WorkflowEditor = () => {
                                         <Button variant="outline" size="sm" onClick={() => handleAddStep("keypress")}>+ Keypress</Button>
                                         <Button variant="outline" size="sm" onClick={() => handleAddStep("wait")}>+ Wait</Button>
                                         <Button variant="outline" size="sm" onClick={() => handleAddStep("loop")}>+ Loop</Button>
+                                        <Button variant="outline" size="sm" onClick={() => handleAddStep("await_input")}>+ Await</Button>
                                         <Button variant="outline" size="sm" onClick={() => handleAddStep("ai_process")}>+ AI Process</Button>
                                         <Button variant="outline" size="sm" onClick={() => handleAddStep("action_notification")}>+ Output</Button>
                                     </div>
