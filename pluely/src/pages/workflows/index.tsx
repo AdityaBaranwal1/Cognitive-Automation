@@ -710,13 +710,11 @@ const WorkflowEditor = () => {
                                                             <Label>Key Bindings</Label>
                                                             {(step.config.keymap || []).map((keyAction: any, idx: number) => (
                                                                 <div key={idx} className="flex gap-2 items-center bg-muted/50 p-2 rounded">
-                                                                    <Input
+                                                                    <HotkeyRecorder
                                                                         value={keyAction.key || ""}
-                                                                        placeholder="F4"
-                                                                        className="w-20 h-8 text-xs"
-                                                                        onChange={(e) => {
+                                                                        onChange={(key) => {
                                                                             const newKeymap = [...(step.config.keymap || [])];
-                                                                            newKeymap[idx] = { ...newKeymap[idx], key: e.target.value };
+                                                                            newKeymap[idx] = { ...newKeymap[idx], key };
                                                                             handleUpdateStep(step.id, { keymap: newKeymap });
                                                                         }}
                                                                     />
@@ -737,6 +735,32 @@ const WorkflowEditor = () => {
                                                                             <SelectItem value="keypress">⌨️ Keypress</SelectItem>
                                                                         </SelectContent>
                                                                     </Select>
+                                                                    {keyAction.action === "keypress" && (
+                                                                        <Select
+                                                                            value={keyAction.keypressConfig?.key || "PageDown"}
+                                                                            onValueChange={(val) => {
+                                                                                const newKeymap = [...(step.config.keymap || [])];
+                                                                                newKeymap[idx] = {
+                                                                                    ...newKeymap[idx],
+                                                                                    keypressConfig: { key: val, modifiers: [] }
+                                                                                };
+                                                                                handleUpdateStep(step.id, { keymap: newKeymap });
+                                                                            }}
+                                                                        >
+                                                                            <SelectTrigger className="w-28 h-8 text-xs">
+                                                                                <SelectValue placeholder="Send..." />
+                                                                            </SelectTrigger>
+                                                                            <SelectContent>
+                                                                                <SelectItem value="PageDown">PageDown</SelectItem>
+                                                                                <SelectItem value="PageUp">PageUp</SelectItem>
+                                                                                <SelectItem value="Down">↓ Down</SelectItem>
+                                                                                <SelectItem value="Up">↑ Up</SelectItem>
+                                                                                <SelectItem value="Tab">Tab</SelectItem>
+                                                                                <SelectItem value="Enter">Enter</SelectItem>
+                                                                                <SelectItem value="Escape">Escape</SelectItem>
+                                                                            </SelectContent>
+                                                                        </Select>
+                                                                    )}
                                                                     <Input
                                                                         value={keyAction.label || ""}
                                                                         placeholder="Label"
