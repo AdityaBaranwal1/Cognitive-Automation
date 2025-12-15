@@ -171,6 +171,33 @@ export const useWorkflowRunner = () => {
             // Track which key was pressed
             let awaitKeyPressed: string | null = null;
 
+            // STEP 1: Dynamically register the await keys as system hotkeys
+            const awaitBindings = {};
+            for (const keyAction of awaitConfig.keymap) {
+                const actionId = `await_${step.id}_${keyAction.key}`;
+                awaitBindings[actionId] = {
+                    action: actionId,
+                    key: keyAction.key,
+                    enabled: true
+                };
+            }
+
+            // Get current shortcuts config and add our temporary bindings
+            const { getShortcutsConfig } = await import("@/lib");
+            const originalConfig = getShortcutsConfig();
+            const tempConfig = {
+                ...originalConfig,
+                bindings: { ...originalConfig.bindings, ...awaitBindings }
+            };
+
+            // Register with OS
+            try {
+                await invoke("update_shortcuts", { config: tempConfig });
+                console.log(`🔑 Registered ${awaitConfig.keymap.length} await keys with OS`);
+            } catch (e) {
+                console.error("Failed to register await keys:", e);
+            }
+
             // Register temporary callbacks for each key in the keymap
             const cleanupFns: (() => void)[] = [];
             for (const keyAction of awaitConfig.keymap) {
