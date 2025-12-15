@@ -733,6 +733,7 @@ const WorkflowEditor = () => {
                                                                             <SelectItem value="continue">✅ Continue</SelectItem>
                                                                             <SelectItem value="break">🛑 Stop</SelectItem>
                                                                             <SelectItem value="keypress">⌨️ Keypress</SelectItem>
+                                                                            <SelectItem value="run_workflow">🔗 Run Workflow</SelectItem>
                                                                         </SelectContent>
                                                                     </Select>
                                                                     {keyAction.action === "keypress" && (
@@ -758,6 +759,28 @@ const WorkflowEditor = () => {
                                                                                 <SelectItem value="Tab">Tab</SelectItem>
                                                                                 <SelectItem value="Enter">Enter</SelectItem>
                                                                                 <SelectItem value="Escape">Escape</SelectItem>
+                                                                            </SelectContent>
+                                                                        </Select>
+                                                                    )}
+                                                                    {keyAction.action === "run_workflow" && (
+                                                                        <Select
+                                                                            value={keyAction.workflowId || ""}
+                                                                            onValueChange={(val) => {
+                                                                                const newKeymap = [...(step.config.keymap || [])];
+                                                                                newKeymap[idx] = {
+                                                                                    ...newKeymap[idx],
+                                                                                    workflowId: val
+                                                                                };
+                                                                                handleUpdateStep(step.id, { keymap: newKeymap });
+                                                                            }}
+                                                                        >
+                                                                            <SelectTrigger className="w-40 h-8 text-xs">
+                                                                                <SelectValue placeholder="Select workflow..." />
+                                                                            </SelectTrigger>
+                                                                            <SelectContent>
+                                                                                {workflows.filter(w => w.id !== selectedWorkflow?.id).map(w => (
+                                                                                    <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                                                                                ))}
                                                                             </SelectContent>
                                                                         </Select>
                                                                     )}
