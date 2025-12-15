@@ -306,7 +306,7 @@ const WorkflowEditor = () => {
                                             onChange={(e) => updateWorkflow({ ...selectedWorkflow, name: e.target.value })}
                                         />
                                     </div>
-                                    <div className="w-36 space-y-2">
+                                    <div className="w-36 space-y-2 mr-4">
                                         <Label>Trigger Key</Label>
                                         <HotkeyRecorder
                                             value={selectedWorkflow.trigger.key}
@@ -316,7 +316,7 @@ const WorkflowEditor = () => {
                                             })}
                                         />
                                     </div>
-                                    <div className="w-36 space-y-2">
+                                    <div className="w-36 space-y-2 border-l border-border/50 pl-4">
                                         <Label className="text-muted-foreground">Emergency Stop</Label>
                                         <HotkeyRecorder
                                             value={selectedWorkflow.trigger.emergencyStopKey}
