@@ -698,6 +698,86 @@ const WorkflowEditor = () => {
                                                         </div>
                                                     </div>
                                                 )}
+
+                                                {step.type === "await_input" && (
+                                                    <div className="space-y-4">
+                                                        <div className="text-xs text-muted-foreground italic mb-2">
+                                                            Pauses workflow and waits for keypresses. Configure which keys trigger actions.
+                                                        </div>
+
+                                                        {/* Keymap Configuration */}
+                                                        <div className="space-y-2">
+                                                            <Label>Key Bindings</Label>
+                                                            {(step.config.keymap || []).map((keyAction: any, idx: number) => (
+                                                                <div key={idx} className="flex gap-2 items-center bg-muted/50 p-2 rounded">
+                                                                    <Input
+                                                                        value={keyAction.key || ""}
+                                                                        placeholder="F4"
+                                                                        className="w-20 h-8 text-xs"
+                                                                        onChange={(e) => {
+                                                                            const newKeymap = [...(step.config.keymap || [])];
+                                                                            newKeymap[idx] = { ...newKeymap[idx], key: e.target.value };
+                                                                            handleUpdateStep(step.id, { keymap: newKeymap });
+                                                                        }}
+                                                                    />
+                                                                    <Select
+                                                                        value={keyAction.action}
+                                                                        onValueChange={(val) => {
+                                                                            const newKeymap = [...(step.config.keymap || [])];
+                                                                            newKeymap[idx] = { ...newKeymap[idx], action: val };
+                                                                            handleUpdateStep(step.id, { keymap: newKeymap });
+                                                                        }}
+                                                                    >
+                                                                        <SelectTrigger className="w-32 h-8 text-xs">
+                                                                            <SelectValue />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            <SelectItem value="continue">✅ Continue</SelectItem>
+                                                                            <SelectItem value="break">🛑 Stop</SelectItem>
+                                                                            <SelectItem value="keypress">⌨️ Keypress</SelectItem>
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                    <Input
+                                                                        value={keyAction.label || ""}
+                                                                        placeholder="Label"
+                                                                        className="flex-1 h-8 text-xs"
+                                                                        onChange={(e) => {
+                                                                            const newKeymap = [...(step.config.keymap || [])];
+                                                                            newKeymap[idx] = { ...newKeymap[idx], label: e.target.value };
+                                                                            handleUpdateStep(step.id, { keymap: newKeymap });
+                                                                        }}
+                                                                    />
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="ghost"
+                                                                        className="h-8 w-8 p-0 text-red-500"
+                                                                        onClick={() => {
+                                                                            const newKeymap = (step.config.keymap || []).filter((_: any, i: number) => i !== idx);
+                                                                            handleUpdateStep(step.id, { keymap: newKeymap });
+                                                                        }}
+                                                                    >
+                                                                        ×
+                                                                    </Button>
+                                                                </div>
+                                                            ))}
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="h-7 text-xs"
+                                                                onClick={() => {
+                                                                    const newKeymap = [...(step.config.keymap || []), { key: "F4", action: "keypress", label: "" }];
+                                                                    handleUpdateStep(step.id, { keymap: newKeymap });
+                                                                }}
+                                                            >
+                                                                + Add Key Binding
+                                                            </Button>
+                                                        </div>
+
+                                                        <div className="text-xs text-muted-foreground">
+                                                            <strong>Actions:</strong> Continue moves to next step, Stop ends workflow, Keypress sends a key then returns to listening.
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </CardContent>
                                         </Card>
                                     ))}
