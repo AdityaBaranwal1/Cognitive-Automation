@@ -588,7 +588,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       const hotkeyData = workflows.map((w) => ({
         id: w.id,
         key: w.trigger.key,
-        stopKey: w.trigger.stopKey, // Phase 5: Include stop key in hash
+        emergencyStopKey: w.trigger.emergencyStopKey, // Include emergency stop key in hash
         enabled: w.trigger.enabled,
       }));
 
@@ -620,13 +620,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             label: w.name,
           };
         }
-        // Phase 5: Register stop hotkey
-        if (w.trigger.stopKey) {
+        // Register emergency stop hotkey
+        if (w.trigger.emergencyStopKey) {
           workflowBindings[`${w.id}_stop`] = {
             action: `${w.id}_stop`,
-            key: w.trigger.stopKey,
+            key: w.trigger.emergencyStopKey,
             enabled: true,
-            label: `Stop: ${w.name}`,
+            label: `Emergency Stop: ${w.name}`,
           };
         }
       });

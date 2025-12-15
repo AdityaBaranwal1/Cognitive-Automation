@@ -77,11 +77,11 @@ export const getShortcutsConfig = (): ShortcutsConfig => {
               enabled: true,
             };
           }
-          // Phase 5: Register stop hotkey
-          if (w.trigger?.stopKey) {
+          // Register emergency stop hotkey
+          if (w.trigger?.emergencyStopKey) {
             bindings[`${w.id}_stop`] = {
               action: `${w.id}_stop`,
-              key: w.trigger.stopKey,
+              key: w.trigger.emergencyStopKey,
               enabled: true,
             };
           }

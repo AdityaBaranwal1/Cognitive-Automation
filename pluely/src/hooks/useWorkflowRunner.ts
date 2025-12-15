@@ -179,12 +179,12 @@ export const useWorkflowRunner = () => {
         let userPromptContext: string = "";
         const context: ExecutionContext = createExecutionContext();
 
-        // Phase 5: Reset stop flag and register stop callback
+        // Reset stop flag and register emergency stop callback
         shouldStopRef.current = false;
         const stopActionId = `${workflow.id}_stop`;
-        if (workflow.trigger.stopKey) {
+        if (workflow.trigger.emergencyStopKey) {
             registerCustomShortcutCallback(stopActionId, () => {
-                console.log("🛑 Stop key pressed!");
+                console.log("🛑 Emergency stop key pressed!");
                 shouldStopRef.current = true;
             });
         }
@@ -358,8 +358,8 @@ export const useWorkflowRunner = () => {
         } catch (error) {
             console.error("Workflow execution failed:", error);
         } finally {
-            // Phase 5: Cleanup stop callback
-            if (workflow.trigger.stopKey) {
+            // Cleanup emergency stop callback
+            if (workflow.trigger.emergencyStopKey) {
                 unregisterCustomShortcutCallback(stopActionId);
             }
         }

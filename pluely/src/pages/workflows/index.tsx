@@ -316,12 +316,12 @@ const WorkflowEditor = () => {
                                         />
                                     </div>
                                     <div className="w-36 space-y-2">
-                                        <Label className="text-muted-foreground">Stop Key</Label>
+                                        <Label className="text-muted-foreground">Emergency Stop</Label>
                                         <HotkeyRecorder
-                                            value={selectedWorkflow.trigger.stopKey}
-                                            onChange={(stopKey) => updateWorkflow({
+                                            value={selectedWorkflow.trigger.emergencyStopKey}
+                                            onChange={(emergencyStopKey) => updateWorkflow({
                                                 ...selectedWorkflow,
-                                                trigger: { ...selectedWorkflow.trigger, stopKey }
+                                                trigger: { ...selectedWorkflow.trigger, emergencyStopKey }
                                             })}
                                         />
                                     </div>
