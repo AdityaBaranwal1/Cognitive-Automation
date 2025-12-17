@@ -36,6 +36,8 @@ interface ChatConversation {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+  providerId?: string;  // Provider used to create this conversation (hybrid: falls back to global if not set)
+  model?: string;       // Model used to create this conversation
 }
 
 interface ChatCompletionState {
@@ -171,8 +173,13 @@ export const useChatCompletion = (
         }
 
         const usePluelyAPI = await shouldUsePluelyAPI();
+
+        // HYBRID PROVIDER LOGIC: Use conversation's stored provider if available, otherwise fall back to global
+        const effectiveProviderId = messages?.providerId || selectedAIProvider.provider;
+        const effectiveModel = messages?.model || selectedAIProvider.variables?.model;
+
         // Check if AI provider is configured
-        if (!selectedAIProvider.provider && !usePluelyAPI) {
+        if (!effectiveProviderId && !usePluelyAPI) {
           setState((prev) => ({
             ...prev,
             error: "Please select an AI provider in settings",
@@ -181,7 +188,7 @@ export const useChatCompletion = (
         }
 
         const provider = allAiProviders.find(
-          (p) => p.id === selectedAIProvider.provider
+          (p) => p.id === effectiveProviderId
         );
         if (!provider && !usePluelyAPI) {
           setState((prev) => ({
@@ -224,7 +231,13 @@ export const useChatCompletion = (
           // Use the fetchAIResponse function with signal
           for await (const chunk of fetchAIResponse({
             provider: usePluelyAPI ? undefined : provider,
-            selectedProvider: selectedAIProvider,
+            selectedProvider: {
+              provider: effectiveProviderId || selectedAIProvider.provider,
+              variables: {
+                ...selectedAIProvider.variables,
+                model: effectiveModel || selectedAIProvider.variables?.model
+              }
+            },
             systemPrompt: systemPrompt || undefined,
             history: messageHistory,
             userMessage: input,
@@ -259,7 +272,7 @@ export const useChatCompletion = (
             // Check if assistant message already exists
             const lastMessage =
               updatedWithResponse.messages[
-                updatedWithResponse.messages.length - 1
+              updatedWithResponse.messages.length - 1
               ];
             if (lastMessage.role === "assistant") {
               // Update existing assistant message

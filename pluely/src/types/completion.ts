@@ -21,6 +21,8 @@ export interface ChatConversation {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+  providerId?: string;  // Provider ID used to create this conversation (hybrid: falls back to global if not set)
+  model?: string;       // Model used to create this conversation
 }
 
 export interface CompletionState {
@@ -37,12 +39,12 @@ export interface CompletionState {
 export interface Message {
   role: "system" | "user" | "assistant";
   content:
-    | string
-    | Array<{
-        type: string;
-        text?: string;
-        image_url?: { url: string };
-        source?: any;
-        inline_data?: any;
-      }>;
+  | string
+  | Array<{
+    type: string;
+    text?: string;
+    image_url?: { url: string };
+    source?: any;
+    inline_data?: any;
+  }>;
 }

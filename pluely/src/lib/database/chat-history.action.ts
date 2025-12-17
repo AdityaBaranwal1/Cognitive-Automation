@@ -13,6 +13,8 @@ interface DbConversation {
   title: string;
   created_at: number;
   updated_at: number;
+  provider_id: string | null;
+  model: string | null;
 }
 
 /**
@@ -100,12 +102,14 @@ export async function createConversation(
   try {
     // Insert conversation
     await db.execute(
-      "INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+      "INSERT INTO conversations (id, title, created_at, updated_at, provider_id, model) VALUES (?, ?, ?, ?, ?, ?)",
       [
         conversation.id,
         conversation.title,
         conversation.createdAt || Date.now(),
         conversation.updatedAt || Date.now(),
+        conversation.providerId || null,
+        conversation.model || null,
       ]
     );
 
@@ -139,7 +143,7 @@ export async function createConversation(
     // Rollback: delete conversation if message insertion failed
     await db
       .execute("DELETE FROM conversations WHERE id = ?", [conversation.id])
-      .catch(() => {});
+      .catch(() => { });
     throw error;
   }
 }
@@ -183,6 +187,8 @@ export async function getAllConversations(): Promise<ChatConversation[]> {
       title: conv.title,
       createdAt: conv.created_at,
       updatedAt: conv.updated_at,
+      providerId: conv.provider_id || undefined,
+      model: conv.model || undefined,
       messages:
         messagesByConversation.get(conv.id)?.map((msg) => ({
           id: msg.id,
@@ -235,6 +241,8 @@ export async function getConversationById(
       title: conv.title,
       createdAt: conv.created_at,
       updatedAt: conv.updated_at,
+      providerId: conv.provider_id || undefined,
+      model: conv.model || undefined,
       messages: messages.map((msg) => ({
         id: msg.id,
         role: msg.role,
@@ -262,10 +270,10 @@ export async function updateConversation(
   const db = await getDatabase();
 
   try {
-    // Update conversation
+    // Update conversation (also update provider/model if provided)
     const updateResult = await db.execute(
-      "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
-      [conversation.title, conversation.updatedAt, conversation.id]
+      "UPDATE conversations SET title = ?, updated_at = ?, provider_id = COALESCE(?, provider_id), model = COALESCE(?, model) WHERE id = ?",
+      [conversation.title, conversation.updatedAt, conversation.providerId || null, conversation.model || null, conversation.id]
     );
 
     if (updateResult.rowsAffected === 0) {
@@ -326,7 +334,7 @@ export async function updateConversation(
               msg.attached_files,
             ]
           )
-          .catch(() => {});
+          .catch(() => { });
       }
       throw messageError;
     }
@@ -482,12 +490,14 @@ export async function migrateLocalStorageToSQLite(): Promise<{
 
         // Insert conversation
         await db.execute(
-          "INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+          "INSERT INTO conversations (id, title, created_at, updated_at, provider_id, model) VALUES (?, ?, ?, ?, ?, ?)",
           [
             conversation.id,
             conversation.title,
             conversation.createdAt || Date.now(),
             conversation.updatedAt || Date.now(),
+            conversation.providerId || null,
+            conversation.model || null,
           ]
         );
 
@@ -538,7 +548,7 @@ export async function migrateLocalStorageToSQLite(): Promise<{
         // Clean up partially migrated conversation
         await db
           .execute("DELETE FROM conversations WHERE id = ?", [conversation?.id])
-          .catch(() => {});
+          .catch(() => { });
       }
     }
 

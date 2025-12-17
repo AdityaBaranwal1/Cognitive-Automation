@@ -17,5 +17,12 @@ pub fn migrations() -> Vec<Migration> {
             sql: include_str!("migrations/chat-history.sql"),
             kind: MigrationKind::Up,
         },
+        // Migration 3: Add provider tracking columns to conversations
+        Migration {
+            version: 3,
+            description: "add_provider_columns",
+            sql: include_str!("migrations/add-provider-columns.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }

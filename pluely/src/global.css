@@ -115,6 +115,7 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
@@ -127,9 +128,7 @@
 }
 
 [data-slot="popover-content"] {
-  background-color: rgb(
-    from var(--popover) r g b / var(--opacity, 1)
-  ) !important;
+  background-color: rgb(from var(--popover) r g b / var(--opacity, 1)) !important;
   backdrop-filter: var(--backdrop-blur, none);
 }
 
@@ -175,4 +174,66 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+}
+
+/* React Flow Overrides for Dark Theme */
+.react-flow__node {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.react-flow__node.selected {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.react-flow__node:focus,
+.react-flow__node:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Edge/connection styling */
+.react-flow__edge-path {
+  stroke: rgba(255, 255, 255, 0.3) !important;
+  stroke-width: 2px !important;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #6366f1 !important;
+}
+
+/* Minimap styling for dark theme */
+.react-flow__minimap {
+  background: rgba(0, 0, 0, 0.8) !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Controls panel styling */
+.react-flow__controls {
+  background: rgba(20, 20, 25, 0.95) !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+}
+
+.react-flow__controls-button {
+  background: transparent !important;
+  border: none !important;
+  color: rgba(255, 255, 255, 0.7) !important;
+  fill: rgba(255, 255, 255, 0.7) !important;
+}
+
+.react-flow__controls-button:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #fff !important;
+  fill: #fff !important;
+}
+
+/* Background dots styling */
+.react-flow__background {
+  background: #0a0a0a !important;
 }

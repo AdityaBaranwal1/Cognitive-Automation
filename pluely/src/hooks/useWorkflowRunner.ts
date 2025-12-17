@@ -274,6 +274,14 @@ export const useWorkflowRunner = () => {
             // Cleanup all temporary callbacks
             cleanupFns.forEach(fn => fn());
             context.stepOutputs.push(`[Await Input completed]`);
+
+            // CRITICAL: Restore original shortcuts (the await keys replaced everything)
+            try {
+                await invoke("update_shortcuts", { config: originalConfig });
+                console.log("🔑 Restored original shortcuts");
+            } catch (e) {
+                console.error("Failed to restore shortcuts:", e);
+            }
         }
 
         return lastResult;
@@ -289,6 +297,8 @@ export const useWorkflowRunner = () => {
 
         let lastResult: any = null;
         let userPromptContext: string = "";
+        let lastProviderId: string | undefined = undefined;  // Track provider for conversation persistence
+        let lastModel: string | undefined = undefined;       // Track model for conversation persistence
         const context: ExecutionContext = createExecutionContext();
 
         // Reset stop flag and register emergency stop callback
@@ -411,6 +421,10 @@ export const useWorkflowRunner = () => {
 
                     lastResult = fullResponse;
                     context.stepOutputs.push(fullResponse);
+
+                    // Track provider/model for conversation persistence
+                    lastProviderId = providerId;
+                    lastModel = aiConfig.model;
                 }
                 else if (step.type === "action_notification" || step.type === "system_action") {
                     console.log(`Running step: ${step.type}`);
@@ -453,7 +467,9 @@ export const useWorkflowRunner = () => {
                                 }
                             ],
                             createdAt: timestamp,
-                            updatedAt: timestamp
+                            updatedAt: timestamp,
+                            providerId: lastProviderId,  // Remember which provider created this conversation
+                            model: lastModel             // Remember which model was used
                         });
 
                         await invoke("open_dashboard");

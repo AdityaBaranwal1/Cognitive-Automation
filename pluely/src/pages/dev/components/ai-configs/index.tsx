@@ -12,10 +12,13 @@ export const AIProviders = (settings: UseSettingsReturn) => {
         isMainTitle
       />
 
-      {/* Custom Provider */}
+      {/* Default Provider Selection - Prominent card at top */}
+      <div className="rounded-xl border border-primary/30 bg-gradient-to-br from-primary/5 to-transparent p-4">
+        <Providers {...settings} />
+      </div>
+
+      {/* Custom Providers - Configuration section below */}
       <CustomProviders {...settings} />
-      {/* Providers Selection */}
-      <Providers {...settings} />
     </div>
   );
 };
