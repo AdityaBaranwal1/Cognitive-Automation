@@ -447,6 +447,107 @@ pub fn update_shortcuts<R: Runtime>(
     Ok(())
 }
 
+/// Tauri command to register a single shortcut incrementally (without touching other shortcuts)
+#[tauri::command]
+pub fn register_shortcut<R: Runtime>(
+    app: AppHandle<R>,
+    action_id: String,
+    key: String,
+) -> Result<(), String> {
+    eprintln!("Registering single shortcut: {} -> {}", action_id, key);
+
+    // Parse the shortcut
+    let shortcut = key.parse::<Shortcut>().map_err(|e| {
+        format!("Invalid shortcut '{}' for action '{}': {}", key, action_id, e)
+    })?;
+
+    // Check if this action_id already has a registered shortcut
+    {
+        let state = app.state::<RegisteredShortcuts>();
+        let registered = match state.shortcuts.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                eprintln!("Mutex poisoned in register_shortcut, recovering...");
+                poisoned.into_inner()
+            }
+        };
+
+        // If action already registered with a different key, unregister old one first
+        if let Some(old_key) = registered.get(&action_id) {
+            if old_key != &key {
+                if let Ok(old_shortcut) = old_key.parse::<Shortcut>() {
+                    let _ = app.global_shortcut().unregister(old_shortcut);
+                    eprintln!("Unregistered old shortcut for {}: {}", action_id, old_key);
+                }
+            } else {
+                // Same key already registered, nothing to do
+                eprintln!("Shortcut already registered: {} -> {}", action_id, key);
+                return Ok(());
+            }
+        }
+    }
+
+    // Register the new shortcut
+    match app.global_shortcut().register(shortcut) {
+        Ok(_) => {
+            eprintln!("✅ Registered shortcut: {} -> {}", action_id, key);
+            
+            // Update state
+            let state = app.state::<RegisteredShortcuts>();
+            let mut registered = match state.shortcuts.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    eprintln!("Mutex poisoned in register_shortcut state update, recovering...");
+                    poisoned.into_inner()
+                }
+            };
+            registered.insert(action_id, key);
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to register shortcut {} -> {}: {}", action_id, key, e);
+            Err(format!("Failed to register shortcut: {}", e))
+        }
+    }
+}
+
+/// Tauri command to unregister a single shortcut by action_id
+#[tauri::command]
+pub fn unregister_shortcut<R: Runtime>(
+    app: AppHandle<R>,
+    action_id: String,
+) -> Result<(), String> {
+    eprintln!("Unregistering shortcut for action: {}", action_id);
+
+    let state = app.state::<RegisteredShortcuts>();
+    let mut registered = match state.shortcuts.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            eprintln!("Mutex poisoned in unregister_shortcut, recovering...");
+            poisoned.into_inner()
+        }
+    };
+
+    // Find and remove the shortcut
+    if let Some(key) = registered.remove(&action_id) {
+        if let Ok(shortcut) = key.parse::<Shortcut>() {
+            match app.global_shortcut().unregister(shortcut) {
+                Ok(_) => {
+                    eprintln!("✅ Unregistered shortcut: {} -> {}", action_id, key);
+                }
+                Err(e) => {
+                    eprintln!("⚠️ Failed to unregister shortcut {} -> {} from OS: {}", action_id, key, e);
+                    // Still return Ok since we removed it from our state
+                }
+            }
+        }
+        Ok(())
+    } else {
+        eprintln!("Shortcut not found for action: {}", action_id);
+        Ok(()) // Not an error if it wasn't registered
+    }
+}
+
 /// Unregister all currently registered shortcuts
 fn unregister_all_shortcuts<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     let state = app.state::<RegisteredShortcuts>();

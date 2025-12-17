@@ -171,32 +171,19 @@ export const useWorkflowRunner = () => {
             // Track which key was pressed
             let awaitKeyPressed: string | null = null;
 
-            // STEP 1: Dynamically register the await keys as system hotkeys
-            const awaitBindings = {};
+            // STEP 1: Dynamically register the await keys as system hotkeys (INCREMENTAL)
+            const registeredAwaitKeys: string[] = [];
             for (const keyAction of awaitConfig.keymap) {
                 const actionId = `await_${step.id}_${keyAction.key}`;
-                awaitBindings[actionId] = {
-                    action: actionId,
-                    key: keyAction.key,
-                    enabled: true
-                };
+                try {
+                    await invoke("register_shortcut", { actionId, key: keyAction.key });
+                    registeredAwaitKeys.push(actionId);
+                    console.log(`🔑 Registered await key: ${keyAction.key}`);
+                } catch (e) {
+                    console.error(`Failed to register await key ${keyAction.key}:`, e);
+                }
             }
-
-            // Get current shortcuts config and add our temporary bindings
-            const { getShortcutsConfig } = await import("@/lib");
-            const originalConfig = getShortcutsConfig();
-            const tempConfig = {
-                ...originalConfig,
-                bindings: { ...originalConfig.bindings, ...awaitBindings }
-            };
-
-            // Register with OS
-            try {
-                await invoke("update_shortcuts", { config: tempConfig });
-                console.log(`🔑 Registered ${awaitConfig.keymap.length} await keys with OS`);
-            } catch (e) {
-                console.error("Failed to register await keys:", e);
-            }
+            console.log(`🔑 Registered ${registeredAwaitKeys.length} await keys with OS (incremental)`);
 
             // Register temporary callbacks for each key in the keymap
             const cleanupFns: (() => void)[] = [];
@@ -275,13 +262,15 @@ export const useWorkflowRunner = () => {
             cleanupFns.forEach(fn => fn());
             context.stepOutputs.push(`[Await Input completed]`);
 
-            // CRITICAL: Restore original shortcuts (the await keys replaced everything)
-            try {
-                await invoke("update_shortcuts", { config: originalConfig });
-                console.log("🔑 Restored original shortcuts");
-            } catch (e) {
-                console.error("Failed to restore shortcuts:", e);
+            // CRITICAL: Unregister only the await keys we added (not everything)
+            for (const actionId of registeredAwaitKeys) {
+                try {
+                    await invoke("unregister_shortcut", { actionId });
+                } catch (e) {
+                    console.error(`Failed to unregister await key ${actionId}:`, e);
+                }
             }
+            console.log(`🔑 Cleaned up ${registeredAwaitKeys.length} await keys (incremental)`);
         }
 
         return lastResult;

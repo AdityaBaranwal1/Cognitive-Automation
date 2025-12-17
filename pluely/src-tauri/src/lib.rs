@@ -92,6 +92,8 @@ pub fn run() {
             shortcuts::check_shortcuts_registered,
             shortcuts::get_registered_shortcuts,
             shortcuts::update_shortcuts,
+            shortcuts::register_shortcut,
+            shortcuts::unregister_shortcut,
             shortcuts::validate_shortcut_key,
             shortcuts::set_license_status,
             shortcuts::set_app_icon_visibility,
