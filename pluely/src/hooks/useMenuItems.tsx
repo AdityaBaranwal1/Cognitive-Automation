@@ -14,6 +14,7 @@ import {
   BugIcon,
   MessageSquareTextIcon,
   Workflow,
+  BrainIcon,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useApp } from "@/contexts";
@@ -52,6 +53,11 @@ export const useMenuItems = () => {
         icon: MessageSquareTextIcon,
         label: "Responses",
         href: "/responses",
+      },
+      {
+        icon: BrainIcon,
+        label: "Model Profiles",
+        href: "/context",
       },
       {
         icon: MonitorIcon,

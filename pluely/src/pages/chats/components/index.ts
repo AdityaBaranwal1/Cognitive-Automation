@@ -4,3 +4,4 @@ export * from "./ChatFiles";
 export * from "./AudioRecorder";
 export * from "./DeleteConfirmation";
 export * from "./View";
+export * from "./ModelSwitcher";

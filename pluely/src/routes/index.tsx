@@ -12,6 +12,7 @@ import {
   Chats,
   Responses,
   WorkflowEditor,
+  Context,
 } from "@/pages";
 import { DashboardLayout } from "@/layouts";
 
@@ -35,6 +36,7 @@ export default function AppRoutes() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/audio" element={<Audio />} />
           <Route path="/responses" element={<Responses />} />
+          <Route path="/context" element={<Context />} />
           <Route path="/dev-space" element={<DevSpace />} />
         </Route>
       </Routes>

@@ -10,6 +10,10 @@ import {
   MESSAGE_ID_OFFSET,
   generateMessageId,
   generateRequestId,
+  setProfileForModel,
+  getProfileForModel,
+  saveProfile,
+  getProfileById,
 } from "@/lib";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -292,6 +296,51 @@ export const useChatCompletion = (
         } catch (e: any) {
           // Only show error if this is still the current request and not aborted
           if (currentRequestIdRef.current === requestId && !signal.aborted) {
+            const errorMsg = (e.message || "An error occurred").toLowerCase();
+
+            // Layer C: Self-healing for context overflow errors
+            const isContextOverflow =
+              errorMsg.includes("context") ||
+              errorMsg.includes("token") ||
+              errorMsg.includes("length") ||
+              errorMsg.includes("limit") ||
+              errorMsg.includes("too long") ||
+              errorMsg.includes("maximum");
+
+            if (isContextOverflow && effectiveModel) {
+              // Try to auto-adjust the context limit for this model
+              try {
+                const currentProfileId = getProfileForModel(effectiveModel);
+                const currentProfile = getProfileById(currentProfileId);
+
+                if (currentProfile && currentProfile.contextWindow > 4096) {
+                  // Halve the context limit
+                  const newLimit = Math.floor(currentProfile.contextWindow / 2);
+                  console.log(`[Self-Healing] Context overflow detected for ${effectiveModel}. Adjusting from ${currentProfile.contextWindow} to ${newLimit}`);
+
+                  // Create new profile with adjusted limit
+                  const adjustedProfile = {
+                    ...currentProfile,
+                    id: `auto-adjusted-${Date.now()}`,
+                    name: `${currentProfile.name} (Adjusted)`,
+                    contextWindow: newLimit,
+                  };
+                  saveProfile(adjustedProfile);
+                  setProfileForModel(effectiveModel, adjustedProfile.id);
+
+                  // Show helpful error message
+                  setState((prev) => ({
+                    ...prev,
+                    isLoading: false,
+                    error: `Context limit exceeded. Automatically adjusted to ${newLimit.toLocaleString()} tokens. Please try again.`,
+                  }));
+                  return;
+                }
+              } catch (healingError) {
+                console.error("[Self-Healing] Failed to adjust context:", healingError);
+              }
+            }
+
             setState((prev) => ({
               ...prev,
               isLoading: false,

@@ -32,7 +32,10 @@ import {
   ChatScreenshot,
   ChatFiles,
   AudioRecorder,
+  ModelSwitcher,
 } from ".";
+import { ArrowRightIcon } from "lucide-react";
+import { saveConversation, generateMessageId } from "@/lib";
 
 const View = () => {
   const { conversationId } = useParams();
@@ -81,6 +84,52 @@ const View = () => {
     navigate(-1);
   };
 
+  // Handle model switch - creates visual divider and updates conversation
+  const handleModelSwitch = async (newProviderId: string, newModel: string) => {
+    if (!messages || !conversationId) return;
+
+    const currentProviderId = messages.providerId;
+    const currentModel = messages.model;
+
+    // Don't switch if same model
+    if (currentProviderId === newProviderId && currentModel === newModel) return;
+
+    // Create model switch message with metadata
+    const timestamp = Date.now();
+    const switchMessage = {
+      id: generateMessageId("system", timestamp),
+      role: "system" as const,
+      content: "",  // Empty content - rendered as visual divider
+      timestamp,
+      metadata: {
+        type: "model_switch" as const,
+        fromProvider: currentProviderId,
+        fromModel: currentModel,
+        toProvider: newProviderId,
+        toModel: newModel,
+      },
+    };
+
+    // Update conversation with new provider/model and add switch message
+    const updatedConversation = {
+      ...messages,
+      providerId: newProviderId,
+      model: newModel,
+      messages: [...messages.messages, switchMessage],
+      updatedAt: timestamp,
+    };
+
+    // Update UI immediately
+    setMessages(updatedConversation);
+
+    // Save to database
+    try {
+      await saveConversation(updatedConversation);
+    } catch (error) {
+      console.error("Failed to save model switch:", error);
+    }
+  };
+
   return (
     <PageLayout
       isMainTitle={false}
@@ -89,6 +138,11 @@ const View = () => {
       description={`${messages?.messages.length} messages in this conversation`}
       rightSlot={
         <div className="flex flex-row items-center gap-2">
+          <ModelSwitcher
+            currentProviderId={messages?.providerId}
+            currentModel={messages?.model}
+            onSwitch={handleModelSwitch}
+          />
           <Button
             variant="outline"
             title="Open this conversation in overlay"
@@ -157,6 +211,9 @@ const View = () => {
               moment(message.timestamp).format("YYYY-MM-DD") !==
               moment(array[index - 1]?.timestamp).format("YYYY-MM-DD");
 
+            // Check if this is a model switch message
+            const isModelSwitch = message.metadata?.type === "model_switch";
+
             return (
               <div key={message.id}>
                 {/* Date separator */}
@@ -169,73 +226,94 @@ const View = () => {
                   </Badge>
                 )}
 
-                {/* Message */}
-                <div
-                  className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"
-                    }`}
-                >
-                  {/* Avatar - Left side for bot */}
-                  {!isUser && (
-                    <div className="flex-shrink-0">
-                      <div className="size-7 lg:size-8 rounded-full bg-primary/10 flex items-center justify-center">
-                        <SparklesIcon className="size-3 lg:size-4 text-primary" />
-                      </div>
+                {/* Model Switch Visual Divider */}
+                {isModelSwitch && (
+                  <div className="flex items-center justify-center gap-2 my-4 px-4">
+                    <div className="flex-1 h-px bg-border" />
+                    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-muted/50 border border-border text-xs text-muted-foreground">
+                      <span className="font-medium">
+                        {message.metadata?.fromProvider || "Unknown"}
+                        {message.metadata?.fromModel && ` / ${message.metadata.fromModel}`}
+                      </span>
+                      <ArrowRightIcon className="size-3" />
+                      <span className="font-medium text-primary">
+                        {message.metadata?.toProvider || "Unknown"}
+                        {message.metadata?.toModel && ` / ${message.metadata.toModel}`}
+                      </span>
                     </div>
-                  )}
+                    <div className="flex-1 h-px bg-border" />
+                  </div>
+                )}
 
-                  {/* Message content */}
+                {/* Message - Skip rendering for model_switch messages (they only show divider) */}
+                {!isModelSwitch && (
                   <div
-                    className={`flex flex-col gap-1 max-w-[70%] ${isUser ? "items-end" : "items-start"
+                    className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"
                       }`}
                   >
-                    <Card
-                      className={`px-4 text-xs lg:text-sm py-0 transition-all select-none shadow-none ${isUser
+                    {/* Avatar - Left side for bot */}
+                    {!isUser && (
+                      <div className="flex-shrink-0">
+                        <div className="size-7 lg:size-8 rounded-full bg-primary/10 flex items-center justify-center">
+                          <SparklesIcon className="size-3 lg:size-4 text-primary" />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Message content */}
+                    <div
+                      className={`flex flex-col gap-1 max-w-[70%] ${isUser ? "items-end" : "items-start"
+                        }`}
+                    >
+                      <Card
+                        className={`px-4 text-xs lg:text-sm py-0 transition-all select-none shadow-none ${isUser
                           ? "!bg-primary text-primary-foreground !border-primary rounded-tr-sm"
                           : "!bg-muted/50 dark:!bg-muted/30 rounded-tl-sm"
-                        }`}
-                    >
-                      <Markdown>{message.content}</Markdown>
-                      {/* Attachments */}
-                      {message.attachedFiles && message.attachedFiles.length > 0 && (
-                        <div className="flex flex-col gap-2 mt-2">
-                          {message.attachedFiles.map((file, i) => (
-                            <div key={i} className="rounded-md overflow-hidden">
-                              {file.type.startsWith("image/") ? (
-                                <img
-                                  src={`data:${file.type};base64,${file.base64}`}
-                                  alt={file.name}
-                                  className="max-w-full h-auto max-h-[200px] object-cover rounded-md"
-                                />
-                              ) : file.type.startsWith("audio/") ? (
-                                <audio
-                                  controls
-                                  src={`data:${file.type};base64,${file.base64}`}
-                                  className="w-full"
-                                />
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </Card>
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] lg:text-xs bg-transparent border-none ${isUser ? "-mr-1" : "-ml-1"
-                        }`}
-                    >
-                      {moment(message.timestamp).format("hh:mm A")}
-                    </Badge>
-                  </div>
-
-                  {/* Avatar - Right side for user */}
-                  {isUser && (
-                    <div className="flex-shrink-0">
-                      <div className="size-7 lg:size-8 rounded-full bg-primary flex items-center justify-center">
-                        <UserIcon className="size-3 lg:size-4 text-primary-foreground" />
-                      </div>
+                          }`}
+                      >
+                        <Markdown>{message.content}</Markdown>
+                        {/* Attachments */}
+                        {message.attachedFiles && message.attachedFiles.length > 0 && (
+                          <div className="flex flex-col gap-2 mt-2">
+                            {message.attachedFiles.map((file, i) => (
+                              <div key={i} className="rounded-md overflow-hidden">
+                                {file.type.startsWith("image/") ? (
+                                  <img
+                                    src={`data:${file.type};base64,${file.base64}`}
+                                    alt={file.name}
+                                    className="max-w-full h-auto max-h-[200px] object-cover rounded-md"
+                                  />
+                                ) : file.type.startsWith("audio/") ? (
+                                  <audio
+                                    controls
+                                    src={`data:${file.type};base64,${file.base64}`}
+                                    className="w-full"
+                                  />
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </Card>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] lg:text-xs bg-transparent border-none ${isUser ? "-mr-1" : "-ml-1"
+                          }`}
+                      >
+                        {moment(message.timestamp).format("hh:mm A")}
+                      </Badge>
                     </div>
-                  )}
-                </div>
+
+                    {/* Avatar - Right side for user */}
+                    {isUser && (
+                      <div className="flex-shrink-0">
+                        <div className="size-7 lg:size-8 rounded-full bg-primary flex items-center justify-center">
+                          <UserIcon className="size-3 lg:size-4 text-primary-foreground" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

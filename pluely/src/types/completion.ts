@@ -13,7 +13,15 @@ export interface ChatMessage {
   content: string;
   timestamp: number;
   attachedFiles?: AttachedFile[];
+  metadata?: {
+    type?: 'model_switch';
+    fromModel?: string;
+    toModel?: string;
+    fromProvider?: string;
+    toProvider?: string;
+  };
 }
+
 
 export interface ChatConversation {
   id: string;
