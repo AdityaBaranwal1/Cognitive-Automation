@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -11,15 +11,18 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, RefreshCwIcon, Loader2Icon, SparklesIcon } from "lucide-react";
+import { ChevronDown, RefreshCwIcon, Loader2Icon, SparklesIcon, BrainIcon, CheckIcon } from "lucide-react";
 import { useApp } from "@/contexts";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import curl2Json from "@bany/curl-to-json";
+import { getProfiles } from "@/lib/storage/model-profiles.storage";
+import { getSuggestedProfileForModel } from "@/config";
 
 interface ModelSwitcherProps {
     currentProviderId?: string;
     currentModel?: string;
-    onSwitch: (providerId: string, model: string) => void;
+    currentProfileId?: string;
+    onSwitch: (providerId: string, model: string, profileId?: string) => void;
 }
 
 interface ProviderModels {
@@ -32,11 +35,32 @@ interface ProviderModels {
 export const ModelSwitcher = ({
     currentProviderId,
     currentModel,
+    currentProfileId,
     onSwitch,
 }: ModelSwitcherProps) => {
     const { allAiProviders, selectedAIProvider } = useApp();
     const [providerModels, setProviderModels] = useState<Map<string, ProviderModels>>(new Map());
     const [isOpen, setIsOpen] = useState(false);
+    const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>(currentProfileId);
+
+    // Load profiles
+    const profiles = useMemo(() => getProfiles(), []);
+
+    // Update profile when model changes
+    useEffect(() => {
+        if (currentModel && !currentProfileId) {
+            const suggestedId = getSuggestedProfileForModel(currentModel);
+            setSelectedProfileId(suggestedId);
+        } else {
+            setSelectedProfileId(currentProfileId);
+        }
+    }, [currentModel, currentProfileId]);
+
+    // Get current profile name
+    const currentProfileName = useMemo(() => {
+        const profile = profiles.find(p => p.id === selectedProfileId);
+        return profile?.name || "Auto";
+    }, [profiles, selectedProfileId]);
 
     // Determine display values
     const effectiveProviderId = currentProviderId || selectedAIProvider?.provider;
@@ -193,7 +217,19 @@ export const ModelSwitcher = ({
     };
 
     const handleModelSelect = (providerId: string, model: string) => {
-        onSwitch(providerId, model);
+        // Auto-suggest a profile based on the model
+        const suggestedProfileId = getSuggestedProfileForModel(model);
+        setSelectedProfileId(suggestedProfileId);
+        onSwitch(providerId, model, suggestedProfileId);
+        setIsOpen(false);
+    };
+
+    const handleProfileSelect = (profileId: string) => {
+        setSelectedProfileId(profileId);
+        // Re-trigger with current model and new profile
+        if (effectiveProviderId && effectiveModel) {
+            onSwitch(effectiveProviderId, effectiveModel, profileId);
+        }
         setIsOpen(false);
     };
 
@@ -276,6 +312,36 @@ export const ModelSwitcher = ({
                         </DropdownMenuSub>
                     );
                 })}
+                {/* Profile Selector */}
+                <DropdownMenuSeparator />
+                <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="cursor-pointer">
+                        <div className="flex items-center gap-2 w-full">
+                            <BrainIcon className="size-3" />
+                            <span>Profile: {currentProfileName}</span>
+                        </div>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                            Select Profile
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {profiles.map((profile) => (
+                            <DropdownMenuItem
+                                key={profile.id}
+                                onClick={() => handleProfileSelect(profile.id)}
+                                className={`cursor-pointer ${profile.id === selectedProfileId ? "bg-primary/10 font-medium" : ""}`}
+                            >
+                                <div className="flex items-center justify-between w-full gap-2">
+                                    <span className="truncate">{profile.name}</span>
+                                    {profile.id === selectedProfileId && (
+                                        <CheckIcon className="size-3 text-primary" />
+                                    )}
+                                </div>
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuSubContent>
+                </DropdownMenuSub>
             </DropdownMenuContent>
         </DropdownMenu>
     );

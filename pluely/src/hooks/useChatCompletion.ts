@@ -166,21 +166,31 @@ export const useChatCompletion = (
           content: msg.content,
         }));
 
-        // Handle image attachments
-        const imagesBase64: string[] = [];
-        if (state.attachedFiles.length > 0) {
-          state.attachedFiles.forEach((file) => {
-            if (file.type.startsWith("image/")) {
-              imagesBase64.push(file.base64);
-            }
-          });
-        }
-
         const usePluelyAPI = await shouldUsePluelyAPI();
 
         // HYBRID PROVIDER LOGIC: Use conversation's stored provider if available, otherwise fall back to global
         const effectiveProviderId = messages?.providerId || selectedAIProvider.provider;
         const effectiveModel = messages?.model || selectedAIProvider.variables?.model;
+
+        // GET PROFILE FOR THIS MODEL - This is the key fix!
+        const profileId = effectiveModel ? getProfileForModel(effectiveModel) : "vision-standard";
+        const profile = getProfileById(profileId);
+        const supportsVision = profile?.supportsVision ?? true;
+
+        console.log(`[Chat] Using profile "${profile?.name}" for model "${effectiveModel}" (vision: ${supportsVision})`);
+
+        // Handle image attachments - ONLY if profile supports vision
+        const imagesBase64: string[] = [];
+        if (supportsVision && state.attachedFiles.length > 0) {
+          state.attachedFiles.forEach((file) => {
+            if (file.type.startsWith("image/")) {
+              imagesBase64.push(file.base64);
+            }
+          });
+          console.log(`[Chat] Sending ${imagesBase64.length} image(s) to AI`);
+        } else if (!supportsVision && state.attachedFiles.length > 0) {
+          console.warn(`[Chat] Profile "${profile?.name}" does not support vision - images will not be sent`);
+        }
 
         // Check if AI provider is configured
         if (!effectiveProviderId && !usePluelyAPI) {

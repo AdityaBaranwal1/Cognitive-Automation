@@ -25,6 +25,7 @@ export interface AIStepConfig extends BaseStepConfig {
     model: string;      // Specific model to use (fetched dynamically)
     prompt: string;     // The user prompt
     systemPromptId?: string; // Reference to system prompt
+    profileId?: string; // Reference to model profile (context/vision settings)
     temperature?: number;
     maxTokens?: number;
     // Phase 3: Image stitching settings

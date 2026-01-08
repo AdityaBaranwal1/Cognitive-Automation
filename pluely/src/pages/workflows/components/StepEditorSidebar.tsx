@@ -5,8 +5,10 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { X, Trash2, Camera, Brain, Clock, Repeat, Keyboard, Pause, Send, MousePointerClick } from 'lucide-react';
+import { X, Trash2, Camera, Brain, Clock, Repeat, Keyboard, Pause, Send, MousePointerClick, Sparkles } from 'lucide-react';
 import { HotkeyRecorder } from '@/components';
+import { getProfiles } from '@/lib/storage/model-profiles.storage';
+import { getSuggestedProfileForModel } from '@/config';
 
 // Icon mapping for step types
 const stepIcons: Record<string, React.ElementType> = {
@@ -137,9 +139,44 @@ export function StepEditorSidebar({
                                 <Label>Model</Label>
                                 <Input
                                     value={(step.config as AIStepConfig).model || ''}
-                                    onChange={(e) => onUpdate({ model: e.target.value })}
+                                    onChange={(e) => {
+                                        const model = e.target.value;
+                                        // Auto-suggest profile if not already set
+                                        const currentProfile = (step.config as AIStepConfig).profileId;
+                                        if (!currentProfile && model) {
+                                            const suggested = getSuggestedProfileForModel(model);
+                                            onUpdate({ model, profileId: suggested });
+                                        } else {
+                                            onUpdate({ model });
+                                        }
+                                    }}
                                     placeholder="e.g. qwen2-vl-2b-instruct"
                                 />
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="flex items-center gap-1">
+                                    <Sparkles className="size-3" />
+                                    Model Profile
+                                </Label>
+                                <Select
+                                    value={(step.config as AIStepConfig).profileId || ''}
+                                    onValueChange={(val) => onUpdate({ profileId: val })}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Auto (based on model)" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="">Auto (based on model)</SelectItem>
+                                        {getProfiles().map(profile => (
+                                            <SelectItem key={profile.id} value={profile.id}>
+                                                {profile.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">
+                                    Controls context window and vision settings
+                                </p>
                             </div>
                             <div className="space-y-2">
                                 <Label>System Prompt</Label>
