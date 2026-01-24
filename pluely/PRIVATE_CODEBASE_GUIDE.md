@@ -322,11 +322,12 @@ dotenv.config({ path: '.env.local' });
 
 ```bash
 # Create a sync reminder script
-echo '#!/bin/bash
+cat > scripts/check-upstream.sh << 'EOF'
+#!/bin/bash
 git fetch upstream
 echo "Upstream commits since last sync:"
 git log HEAD..upstream/main --oneline
-' > scripts/check-upstream.sh
+EOF
 
 chmod +x scripts/check-upstream.sh
 
