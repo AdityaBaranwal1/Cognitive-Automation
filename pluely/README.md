@@ -467,6 +467,21 @@ This creates platform-specific installers in `src-tauri/target/release/bundle/`:
 
 ---
 
+## 🔒 Private Codebase & Custom Deployments
+
+Need to create a private fork or customize Pluely for your organization? Check out our comprehensive guide:
+
+**[📖 How to Share a Private Codebase](PRIVATE_CODEBASE_GUIDE.md)**
+
+This guide covers:
+- Creating private forks and mirrors
+- Managing team collaboration on private repositories
+- Syncing with the public upstream repository
+- Best practices for enterprise deployments
+- License compliance (GPL v3)
+
+---
+
 ## Contributing
 
 We keep contributions focused so Pluely stays lean and reliable.
@@ -522,6 +537,7 @@ This project is licensed under the **GNU General Public License v3.0** - see the
 - **Website**: [pluely.com](https://pluely.com/) (Pluely website)
 - **Website**: [cluely.com](https://cluely.com/) (Original Cluely)
 - **Documentation**: [GitHub Wiki](https://github.com/iamsrikanthnani/pluely/wiki)
+- **Private Codebase Guide**: [How to Share a Private Codebase](PRIVATE_CODEBASE_GUIDE.md)
 - **Issues**: [GitHub Issues](https://github.com/iamsrikanthnani/pluely/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/iamsrikanthnani/pluely/discussions)
 
