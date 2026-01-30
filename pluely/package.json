@@ -1,21 +1,21 @@
 {
-  "name": "pluely",
+  "name": "auto-vision",
   "private": false,
   "version": "0.1.8",
-  "description": "The Open Source Alternative to Cluely - A lightning-fast, privacy-first AI assistant that works seamlessly during meetings, interviews, and conversations without anyone knowing.",
+  "description": "Cognitive Automation & AI Workflow Engineering - A visual programming tool for building automated intelligence pipelines with AI integration.",
   "author": {
-    "name": "Srikanth Nani",
-    "email": "srikanthnani1202@gmail.com",
-    "url": "https://www.srikanthnani.com"
+    "name": "Aditya Baranwal",
+    "email": "Adityaatbaranwal@gmail.com",
+    "url": "https://github.com/AdityaBaranwal1"
   },
   "license": "GPL-3.0",
-  "homepage": "https://github.com/iamsrikanthnani/pluely#readme",
+  "homepage": "https://github.com/AdityaBaranwal1/Cognitive-Automation#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/iamsrikanthnani/pluely.git"
+    "url": "git+https://github.com/AdityaBaranwal1/Cognitive-Automation.git"
   },
   "bugs": {
-    "url": "https://github.com/iamsrikanthnani/pluely/issues"
+    "url": "https://github.com/AdityaBaranwal1/Cognitive-Automation/issues"
   },
   "keywords": [
     "ai-assistant",
@@ -23,12 +23,13 @@
     "desktop-app",
     "privacy-first",
     "open-source",
-    "meeting-assistant",
+    "workflow-automation",
+    "cognitive-automation",
+    "visual-programming",
     "speech-to-text",
     "llm",
     "chatgpt",
     "claude",
-    "cluely-alternative",
     "typescript",
     "react",
     "rust"
@@ -36,7 +37,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "npx tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri"
   },

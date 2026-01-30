@@ -3,7 +3,7 @@ import Database from "@tauri-apps/plugin-sql";
 /**
  * Database configuration
  */
-export const DB_NAME = "sqlite:pluely.db";
+export const DB_NAME = "sqlite:auto_vision.db";
 
 let dbInstance: Database | null = null;
 
@@ -16,8 +16,7 @@ export async function getDatabase(): Promise<Database> {
       dbInstance = await Database.load(DB_NAME);
     } catch (error) {
       throw new Error(
-        `Failed to initialize database: ${
-          error instanceof Error ? error.message : String(error)
+        `Failed to initialize database: ${error instanceof Error ? error.message : String(error)
         }`
       );
     }

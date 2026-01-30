@@ -1,10 +1,20 @@
 # Current Development Tasks
 
-> Last Updated: Dec 17, 2024
+> Last Updated: Jan 9, 2026
 
 ## ✅ Recently Completed
 
-### Incremental Shortcut Registration (Dec 17)
+### Model Switching & Capabilities (Phase 10A, 10A.2) - Jan 2025
+- [x] In-Chat Model Switcher (`ModelSwitcher.tsx`) with provider/model dropdown
+- [x] Dynamic model fetching from `/v1/models` endpoint per provider
+- [x] Model Profiles system with vision + context window tracking
+- [x] Default profiles: `vision-large`, `vision-standard`, `text-only`, `local-conservative`
+- [x] Pattern matching for auto-profile suggestion based on model name
+- [x] `useModelTester` hook with automated vision + context window testing
+- [x] Context Management page (`pages/context/index.tsx`) for profile CRUD
+- [x] Profile persistence in localStorage with model→profile mappings
+
+### Incremental Shortcut Registration (Dec 17, 2024)
 - [x] Add `register_shortcut` Rust command
 - [x] Add `unregister_shortcut` Rust command  
 - [x] Register commands in `lib.rs`
@@ -27,20 +37,11 @@
 
 ---
 
-## 🔜 Next Priority: Phase 10A-B (Model Switching)
-
-### Phase 10A: In-Chat Model Switcher (~30 min)
-- [ ] Add dropdown to chat header (like OpenAI style)
-- [ ] When switched, update `conversation.providerId` and `conversation.model`
+## 🔜 Next Priority: Phase 10A.1, 10B (Model Switching Polish)
 
 ### Phase 10A.1: Visual Divider (~10 min)
 - [ ] Insert special message: `--- Switched to X ---`
 - [ ] Store as `type: 'model_switch'` in messages
-
-### Phase 10A.2: Model Capabilities Lookup (~20 min)
-- [ ] Hardcoded lookup for known models (GPT-4, Claude, Gemini, etc.)
-- [ ] User-configurable for custom providers (checkbox + input)
-- [ ] **NOTE**: No universal API exists - must be manual/hardcoded
 
 ### Phase 10B: Context Sanitization (~30 min)
 - [ ] Detect when switching vision→text model
@@ -82,10 +83,15 @@
 
 ---
 
-## Key Files for Next Session
+## Key Files Reference
 
 | File | Purpose |
 |------|---------|
+| `src/pages/chats/components/ModelSwitcher.tsx` | In-chat provider/model dropdown |
+| `src/hooks/useModelTester.ts` | Automated vision + context testing |
+| `src/lib/storage/model-profiles.storage.ts` | Profile persistence + model mapping |
+| `src/config/model-profiles.constants.ts` | Built-in profiles + pattern matching |
+| `src/pages/context/index.tsx` | Context management dashboard |
 | `src/hooks/useWorkflowRunner.ts` | Workflow execution engine |
 | `src/hooks/useChatCompletion.ts` | AI chat with provider logic |
 | `src/contexts/app.context.tsx` | Global state, workflows |

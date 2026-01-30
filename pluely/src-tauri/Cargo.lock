@@ -312,6 +312,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "auto_vision"
+version = "0.1.8"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "cidre",
+ "cpal",
+ "dotenv",
+ "futures-util",
+ "hound",
+ "image",
+ "libpulse-binding",
+ "libpulse-simple-binding",
+ "once_cell",
+ "reqwest 0.12.23",
+ "ringbuf",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-nspanel",
+ "tauri-plugin-autostart",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-http",
+ "tauri-plugin-keychain",
+ "tauri-plugin-machine-uid",
+ "tauri-plugin-macos-permissions",
+ "tauri-plugin-opener",
+ "tauri-plugin-posthog",
+ "tauri-plugin-shell",
+ "tauri-plugin-sql",
+ "tauri-plugin-updater",
+ "tokio",
+ "tracing",
+ "uuid",
+ "wasapi",
+ "windows 0.58.0",
+ "xcap",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4120,47 +4161,6 @@ dependencies = [
  "quick-xml 0.38.1",
  "serde",
  "time",
-]
-
-[[package]]
-name = "pluely"
-version = "0.1.8"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "cidre",
- "cpal",
- "dotenv",
- "futures-util",
- "hound",
- "image",
- "libpulse-binding",
- "libpulse-simple-binding",
- "once_cell",
- "reqwest 0.12.23",
- "ringbuf",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-nspanel",
- "tauri-plugin-autostart",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-http",
- "tauri-plugin-keychain",
- "tauri-plugin-machine-uid",
- "tauri-plugin-macos-permissions",
- "tauri-plugin-opener",
- "tauri-plugin-posthog",
- "tauri-plugin-shell",
- "tauri-plugin-sql",
- "tauri-plugin-updater",
- "tokio",
- "tracing",
- "uuid",
- "wasapi",
- "windows 0.58.0",
- "xcap",
 ]
 
 [[package]]

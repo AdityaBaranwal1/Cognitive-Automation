@@ -1,12 +1,12 @@
-# Pluely Development Context & Roadmap
+# Auto-Vision Development Context & Roadmap
 
-> **Purpose**: This document provides comprehensive context for AI assistants continuing development on Pluely. It includes not just WHAT to build, but WHY decisions were made.
+> **Purpose**: This document provides comprehensive context for AI assistants continuing development on Auto-Vision. It includes not just WHAT to build, but WHY decisions were made.
 
 ---
 
 ## Project Overview
 
-**Pluely** is a Tauri-based desktop application that enables visual workflow automation with AI integration. Think of it as a "workflow builder meets AI chat" - users create automated sequences that can capture screenshots, process them with AI, wait for user input, and execute actions.
+**Auto-Vision** is a Tauri-based desktop application that enables visual workflow automation with AI integration. Think of it as a "workflow builder meets AI chat" - users create automated sequences that can capture screenshots, process them with AI, wait for user input, and execute actions.
 
 ### Key Architecture Decisions
 
@@ -272,14 +272,14 @@ This is stored as a message with `type: 'model_switch'` metadata.
 
 ### Implementation Phases
 
-| Phase | Feature | Effort | Notes |
+| Phase | Feature | Status | Notes |
 |-------|---------|--------|-------|
-| **10A** | In-Chat Model Switcher | ~30 min | Dropdown in chat header |
-| **10A.1** | Visual Divider | ~10 min | Special message type |
-| **10A.2** | Model Capabilities | ~20 min | Hardcoded + user config |
-| **10B** | Context Sanitization | ~30 min | Strip images for text models |
-| **10C** | Context Checkpoints | ~1 hr | Avoid resending full history |
-| **10D** | Handoff Profiles | ~1 hr | "Quick"/"Full"/"Vision" presets |
+| **10A** | In-Chat Model Switcher | ✅ Complete | `ModelSwitcher.tsx` with provider/model dropdown |
+| **10A.1** | Visual Divider | ⬜ Not Started | Special message type |
+| **10A.2** | Model Capabilities | ✅ Complete | `useModelTester` + model profiles |
+| **10B** | Context Sanitization | ⬜ Not Started | Strip images for text models |
+| **10C** | Context Checkpoints | ⬜ Not Started | Avoid resending full history |
+| **10D** | Handoff Profiles | ⬜ Not Started | "Quick"/"Full"/"Vision" presets |
 
 ---
 
@@ -301,12 +301,17 @@ Change app name, window titles, icons to user's brand.
 | `hooks/useWorkflowRunner.ts` | Executes workflows, handles all step types |
 | `hooks/useGlobalShortcuts.ts` | Event listeners for shortcuts |
 | `hooks/useChatCompletion.ts` | AI chat logic |
+| `hooks/useModelTester.ts` | Automated vision + context window testing |
 | `contexts/app.context.tsx` | Global state, workflow sync to shortcuts |
 | `pages/workflows/index.tsx` | Workflow editor UI |
 | `pages/workflows/components/WorkflowCanvas.tsx` | React Flow graph |
 | `pages/workflows/components/WorkflowNode.tsx` | Custom node component |
 | `pages/workflows/hooks/useWorkflowGraph.ts` | Steps → nodes/edges |
+| `pages/chats/components/ModelSwitcher.tsx` | In-chat provider/model dropdown |
+| `pages/context/index.tsx` | Context management dashboard |
 | `lib/database/chat-history.action.ts` | Conversation CRUD |
+| `lib/storage/model-profiles.storage.ts` | Profile persistence + model mapping |
+| `config/model-profiles.constants.ts` | Built-in profiles + pattern matching |
 | `types/workflow.ts` | Workflow, Step, Config types |
 
 ### Backend (src-tauri/src/)
@@ -345,7 +350,7 @@ Change app name, window titles, icons to user's brand.
 
 ---
 
-## Current Status (As of Dec 17, 2024)
+## Current Status (As of Jan 9, 2026)
 
 ### ✅ Completed
 - Engine foundation (Phases 1-5)
@@ -353,23 +358,27 @@ Change app name, window titles, icons to user's brand.
 - Incremental shortcut registration
 - Visual node editor (basic)
 - Provider persistence
+- **Phase 10A**: In-Chat Model Switcher (`ModelSwitcher.tsx`)
+- **Phase 10A.2**: Model Capabilities with `useModelTester` hook + profiles
+- Context Management page for profile CRUD
 
 ### 🔜 Next Up
-- **Phase 10A**: In-Chat Model Switcher (HIGH PRIORITY)
+- **Phase 10A.1**: Visual Divider on model switch
 - **Phase 10B**: Context Sanitization
 
 ### 📋 Backlog
 - Phase 7: HUD Overlay
 - Phase 8.5-8.7: Node Editor polish
-- Phase 10C-G: Advanced context features
+- Phase 10C-D: Context checkpoints + handoff profiles
 - Phase 11: Branding
 
 ---
 
 ## Notes for Next AI
 
-1. **Model Capabilities**: There's no API to auto-detect. Use hardcoded lookup + user config.
-2. **Shortcut Registration**: Always prefer incremental (`register_shortcut`/`unregister_shortcut`) over full rebuild (`update_shortcuts`).
-3. **Context Switching**: The user prefers "Modify with visual divider" over "Fork to new conversation".
-4. **Tree vs Graph**: Tree view for editing, Graph view for visualization.
-5. **Styling**: Dark theme with accent colors per step type. See `global.css` for React Flow overrides.
+1. **Model Capabilities**: `useModelTester` hook handles automated detection. Vision test uses 1x1 red pixel PNG; context test uses smart breakpoints (4K→8K→32K→128K→200K→1M).
+2. **Model Profiles**: Stored in localStorage via `model-profiles.storage.ts`. Pattern matching in `model-profiles.constants.ts` auto-suggests profiles.
+3. **Shortcut Registration**: Always prefer incremental (`register_shortcut`/`unregister_shortcut`) over full rebuild (`update_shortcuts`).
+4. **Context Switching**: The user prefers "Modify with visual divider" over "Fork to new conversation". Visual divider (Phase 10A.1) is next.
+5. **Tree vs Graph**: Tree view for editing, Graph view for visualization.
+6. **Styling**: Dark theme with accent colors per step type. See `global.css` for React Flow overrides.

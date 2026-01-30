@@ -44,7 +44,7 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 /**
  * Context Management Page
- * Configure how Pluely handles AI context, model capabilities, and conversation history.
+ * Configure how Auto-Vision handles AI context, model capabilities, and conversation history.
  */
 const Context = () => {
     const { allAiProviders, selectedAIProvider } = useApp();
@@ -257,7 +257,7 @@ const Context = () => {
                 {/* Page Header */}
                 <Header
                     title="🧠 Model Profiles"
-                    description="Configure how Pluely handles history and images for different models to prevent crashes and save tokens."
+                    description="Configure how Auto-Vision handles history and images for different models to prevent crashes and save tokens."
                     isMainTitle
                 />
 
