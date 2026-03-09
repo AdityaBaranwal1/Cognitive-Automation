@@ -1,15 +1,14 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-mod activate;
-mod api;
 mod capture;
 mod db;
-mod input;  // NEW: Keyboard/mouse input injection
+mod input; // NEW: Keyboard/mouse input injection
 mod shortcuts;
 mod window;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Manager, WebviewWindow};
-use tauri_plugin_posthog::{init as posthog_init, PostHogConfig, PostHogOptions};
+use tauri::Manager;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+mod persistent;
 mod speaker;
 use capture::CaptureState;
 use speaker::VadConfig;
@@ -23,6 +22,7 @@ pub struct AudioState {
     stream_task: Arc<Mutex<Option<JoinHandle<()>>>>,
     vad_config: Arc<Mutex<VadConfig>>,
     is_capturing: Arc<Mutex<bool>>,
+    pub cancel_token: CancellationToken,
 }
 
 #[tauri::command]
@@ -32,8 +32,7 @@ fn get_app_version() -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Get PostHog API key
-    let posthog_api_key = option_env!("POSTHOG_API_KEY").unwrap_or("").to_string();
+    #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(
             tauri_plugin_sql::Builder::default()
@@ -46,31 +45,18 @@ pub fn run() {
             is_hidden: Mutex::new(false),
         })
         .manage(shortcuts::RegisteredShortcuts::default())
-        .manage(shortcuts::LicenseState::default())
         .manage(shortcuts::MoveWindowState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_keychain::init())
-        .plugin(tauri_plugin_shell::init()) // Add shell plugin
-        .plugin(posthog_init(PostHogConfig {
-            api_key: posthog_api_key,
-            options: Some(PostHogOptions {
-                // disable session recording
-                disable_session_recording: Some(true),
-                // disable pageview
-                capture_pageview: Some(false),
-                // disable pageleave
-                capture_pageleave: Some(false),
-                ..Default::default()
-            }),
-            ..Default::default()
-        }))
+        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_machine_uid::init());
     #[cfg(target_os = "macos")]
     {
         builder = builder.plugin(tauri_nspanel::init());
     }
+    #[allow(unused_mut)]
     let mut builder = builder
         .invoke_handler(tauri::generate_handler![
             get_app_version,
@@ -87,7 +73,7 @@ pub fn run() {
             capture::wait_for_region_selection,
             capture::capture_area_silent,
             capture::capture_screen_silent,
-            capture::stitch_images_vertical,  // Phase 3: Image stitching
+            capture::stitch_images_vertical, // Phase 3: Image stitching
             capture::close_overlay_window,
             shortcuts::check_shortcuts_registered,
             shortcuts::get_registered_shortcuts,
@@ -95,24 +81,9 @@ pub fn run() {
             shortcuts::register_shortcut,
             shortcuts::unregister_shortcut,
             shortcuts::validate_shortcut_key,
-            shortcuts::set_license_status,
             shortcuts::set_app_icon_visibility,
             shortcuts::set_always_on_top,
             shortcuts::exit_app,
-            activate::activate_license_api,
-            activate::deactivate_license_api,
-            activate::validate_license_api,
-            activate::mask_license_key_cmd,
-            activate::get_checkout_url,
-            activate::secure_storage_save,
-            activate::secure_storage_get,
-            activate::secure_storage_remove,
-            api::transcribe_audio,
-            api::chat_stream_response,
-            api::fetch_models,
-            api::create_system_prompt,
-            api::check_license_status,
-            api::get_activity,
             speaker::start_system_audio_capture,
             speaker::stop_system_audio_capture,
             speaker::manual_stop_continuous,
@@ -126,7 +97,33 @@ pub fn run() {
             input::send_keypress,
             input::send_text,
             input::get_modifier_state,
+            // Persistent data sync (cross-window)
+            persistent::save_persistent_data,
         ])
+        // --- WEBVIEW LIFECYCLE GUARD ---
+        // Catches webview reloads (F5, hot-reload, navigation) that would otherwise
+        // orphan running audio capture tasks. WindowEvent::Destroyed only fires on
+        // window close, not webview reloads.
+        .on_page_load(|webview, payload| {
+            use tauri::webview::PageLoadEvent;
+
+            // Only act on page-load-started for the main window (reload in progress)
+            if webview.label() == "main" && matches!(payload.event(), PageLoadEvent::Started) {
+                eprintln!("[lifecycle] Main webview reloading — cancelling audio capture");
+                let state = webview.state::<AudioState>();
+                // Cancel the token — capture loops will exit via tokio::select!
+                state.cancel_token.cancel();
+                // Also abort the task directly as safety net
+                if let Ok(mut guard) = state.stream_task.lock() {
+                    if let Some(task) = guard.take() {
+                        task.abort();
+                    }
+                }
+                if let Ok(mut capturing) = state.is_capturing.lock() {
+                    *capturing = false;
+                };
+            }
+        })
         .setup(|app| {
             // Setup main window positioning
             window::setup_main_window(app).expect("Failed to setup main window");
@@ -208,6 +205,34 @@ pub fn run() {
             if let Err(e) = shortcuts::setup_global_shortcuts(app.handle()) {
                 eprintln!("Failed to setup global shortcuts: {}", e);
             }
+
+            // --- VAD Memory Guard: kill audio capture on window destroy ---
+            // Lifecycle coverage:
+            //   1. on_page_load(PageLoadEvent::Started) — catches F5/hot-reload (above)
+            //   2. WindowEvent::Destroyed — catches window close (below)
+            // Together these cover all webview teardown paths in Tauri v2.
+            let app_handle_for_destroy = app.handle().clone();
+            app.get_webview_window("main")
+                .expect("main window must exist")
+                .on_window_event(move |event| {
+                    if let tauri::WindowEvent::Destroyed = event {
+                        let state = app_handle_for_destroy.state::<AudioState>();
+                        // Cancel the token — this will cause capture loops to exit
+                        state.cancel_token.cancel();
+                        // Also abort the task directly as a safety net
+                        if let Ok(mut guard) = state.stream_task.lock() {
+                            if let Some(task) = guard.take() {
+                                task.abort();
+                            }
+                        }
+                        {
+                            if let Ok(mut capturing) = state.is_capturing.lock() {
+                                *capturing = false;
+                            };
+                        }
+                    }
+                });
+
             Ok(())
         });
 

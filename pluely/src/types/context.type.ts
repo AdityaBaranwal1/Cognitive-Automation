@@ -1,8 +1,10 @@
 import { Dispatch, SetStateAction } from "react";
-import { ScreenshotConfig, TYPE_PROVIDER, Workflow } from "@/types";
+import { ScreenshotConfig, TYPE_PROVIDER, Workflow, WorkflowExecution } from "@/types";
 import { CursorType, CustomizableState } from "@/lib/storage";
 
-export type IContextType = {
+// --- Isolated context types ---
+
+export type IConfigContextType = {
   systemPrompt: string;
   setSystemPrompt: Dispatch<SetStateAction<string>>;
   allAiProviders: TYPE_PROVIDER[];
@@ -40,11 +42,10 @@ export type IContextType = {
   toggleAlwaysOnTop: (isEnabled: boolean) => Promise<void>;
   toggleAutostart: (isEnabled: boolean) => Promise<void>;
   loadData: () => void;
-  pluelyApiEnabled: boolean;
-  setPluelyApiEnabled: (enabled: boolean) => void;
-  hasActiveLicense: boolean;
-  setHasActiveLicense: Dispatch<SetStateAction<boolean>>;
-  getActiveLicenseStatus: () => Promise<void>;
+  setCursorType: (type: CursorType) => void;
+};
+
+export type IAudioContextType = {
   selectedAudioDevices: {
     input: string;
     output: string;
@@ -55,9 +56,16 @@ export type IContextType = {
       output: string;
     }>
   >;
-  setCursorType: (type: CursorType) => void;
+};
+
+export type IWorkflowContextType = {
   workflows: Workflow[];
   saveWorkflow: (workflow: Workflow) => Promise<void>;
   deleteWorkflow: (id: string) => Promise<void>;
   updateWorkflow: (workflow: Workflow) => Promise<void>;
+  workflowExecution: WorkflowExecution | null;
+  setWorkflowExecution: React.Dispatch<React.SetStateAction<WorkflowExecution | null>>;
 };
+
+// --- Backward-compatible combined type ---
+export type IContextType = IConfigContextType & IAudioContextType & IWorkflowContextType;

@@ -1,6 +1,7 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect } from 'react';
 import { Node, Edge, useNodesState, useEdgesState, Connection, addEdge } from '@xyflow/react';
-import { Workflow, WorkflowStep } from '@/types';
+import { Workflow, WorkflowStep, WorkflowExecutionStatus } from '@/types';
+import { useWorkflow } from '@/contexts';
 
 // Node data type matching our step types
 export interface WorkflowNodeData {
@@ -8,12 +9,14 @@ export interface WorkflowNodeData {
     type: WorkflowStep['type'];
     config: WorkflowStep['config'];
     label: string;
-    name: string;
+    name?: string;
+    isActive: boolean;
+    executionStatus: WorkflowExecutionStatus | null;
     [key: string]: unknown; // Index signature for Record<string, unknown> compatibility
 }
 
 // Convert workflow steps to React Flow nodes
-function stepsToNodes(steps: WorkflowStep[]): Node<WorkflowNodeData>[] {
+function stepsToNodes(steps: WorkflowStep[], activeStepId?: string | null, executionStatus?: WorkflowExecutionStatus | null): Node<WorkflowNodeData>[] {
     return steps.map((step, index) => ({
         id: step.id,
         type: 'default', // Use default node type initially, custom types in Phase 8B
@@ -24,6 +27,8 @@ function stepsToNodes(steps: WorkflowStep[]): Node<WorkflowNodeData>[] {
             config: step.config,
             label: getStepLabel(step),
             name: step.name,
+            isActive: step.id === activeStepId,
+            executionStatus: step.id === activeStepId ? (executionStatus || null) : null,
         },
     }));
 }
@@ -100,9 +105,15 @@ function nodesToSteps(nodes: Node<WorkflowNodeData>[], edges: Edge[]): WorkflowS
 }
 
 export function useWorkflowGraph(workflow: Workflow | null) {
+    const { workflowExecution } = useWorkflow();
+
+    // Determine if this workflow is currently executing
+    const activeStepId = workflowExecution?.workflowId === workflow?.id ? workflowExecution?.activeStepId : null;
+    const executionStatus = workflowExecution?.workflowId === workflow?.id ? workflowExecution?.status : null;
+
     // Initial nodes and edges from workflow
     const initialNodes = useMemo(
-        () => (workflow?.steps ? stepsToNodes(workflow.steps) : []),
+        () => (workflow?.steps ? stepsToNodes(workflow.steps, activeStepId, executionStatus) : []),
         [workflow?.id] // Only recalculate when workflow changes
     );
 
@@ -114,6 +125,20 @@ export function useWorkflowGraph(workflow: Workflow | null) {
     // React Flow state
     const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+    // Update node active states when execution state changes
+    useEffect(() => {
+        setNodes(currentNodes =>
+            currentNodes.map(node => ({
+                ...node,
+                data: {
+                    ...node.data,
+                    isActive: node.data.stepId === activeStepId,
+                    executionStatus: node.data.stepId === activeStepId ? (executionStatus || null) : null,
+                },
+            }))
+        );
+    }, [activeStepId, executionStatus, setNodes]);
 
     // Handle new connections
     const onConnect = useCallback(
@@ -130,9 +155,9 @@ export function useWorkflowGraph(workflow: Workflow | null) {
 
     // Sync with workflow changes
     const syncFromWorkflow = useCallback((workflow: Workflow) => {
-        setNodes(stepsToNodes(workflow.steps));
+        setNodes(stepsToNodes(workflow.steps, activeStepId, executionStatus));
         setEdges(stepsToEdges(workflow.steps));
-    }, [setNodes, setEdges]);
+    }, [setNodes, setEdges, activeStepId, executionStatus]);
 
     return {
         nodes,

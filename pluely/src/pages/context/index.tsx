@@ -12,7 +12,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { useApp } from "@/contexts";
+import { useConfig } from "@/contexts";
 import { useModelTester, TestResult } from "@/hooks/useModelTester";
 import {
     getProfiles,
@@ -47,7 +47,7 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
  * Configure how Auto-Vision handles AI context, model capabilities, and conversation history.
  */
 const Context = () => {
-    const { allAiProviders, selectedAIProvider } = useApp();
+    const { allAiProviders, selectedAIProvider } = useConfig();
     const tester = useModelTester();
 
     // State

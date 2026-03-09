@@ -4,7 +4,6 @@ import {
   RefreshCw,
   CheckCircle,
   AlertCircle,
-  ExternalLink,
   Loader2,
 } from "lucide-react";
 import {
@@ -268,16 +267,7 @@ export const Updater = () => {
 
           <div className="text-center">
             <p className="text-xs text-muted-foreground">
-              Having trouble downloading?{" "}
-              <a
-                href={"https://pluely.com/downloads?ref=pluely-app"}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-700 underline inline-flex items-center gap-1"
-              >
-                Download manually
-                <ExternalLink className="h-3 w-3" />
-              </a>
+              Updates will be downloaded and installed automatically.
             </p>
           </div>
         </div>

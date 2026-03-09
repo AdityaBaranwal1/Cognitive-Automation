@@ -7,11 +7,11 @@ use hound::{WavSpec, WavWriter};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::io::Cursor;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_shell::ShellExt;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, warn};
 
 // VAD Configuration
@@ -98,6 +98,9 @@ pub async fn start_system_audio_capture(
         .map_err(|e| format!("Failed to read VAD config: {}", e))?
         .clone();
 
+    // Clone the cancellation token for this capture session
+    let cancel_token = state.cancel_token.clone();
+
     // Mark as capturing BEFORE spawning task
     *state
         .is_capturing
@@ -110,9 +113,9 @@ pub async fn start_system_audio_capture(
     let state_clone = app.state::<crate::AudioState>();
     let task = tokio::spawn(async move {
         if vad_config.enabled {
-            run_vad_capture(app_clone.clone(), stream, sr, vad_config).await;
+            run_vad_capture(app_clone.clone(), stream, sr, vad_config, cancel_token).await;
         } else {
-            run_continuous_capture(app_clone.clone(), stream, sr, vad_config).await;
+            run_continuous_capture(app_clone.clone(), stream, sr, vad_config, cancel_token).await;
         }
 
         let state = app_clone.state::<crate::AudioState>();
@@ -137,6 +140,7 @@ async fn run_vad_capture(
     stream: impl StreamExt<Item = f32> + Unpin,
     sr: u32,
     config: VadConfig,
+    cancel_token: CancellationToken,
 ) {
     let mut stream = stream;
     let mut buffer: VecDeque<f32> = VecDeque::new();
@@ -148,7 +152,21 @@ async fn run_vad_capture(
     let mut speech_chunks = 0;
     let max_samples = sr as usize * 30; // 30s safety cap per utterance
 
-    while let Some(sample) = stream.next().await {
+    loop {
+        // Use tokio::select! to race between next sample and cancellation
+        let sample = tokio::select! {
+            s = stream.next() => {
+                match s {
+                    Some(val) => val,
+                    None => break, // Stream ended
+                }
+            }
+            _ = cancel_token.cancelled() => {
+                // Window destroyed or stop requested — exit immediately
+                break;
+            }
+        };
+
         buffer.push_back(sample);
 
         // Process in fixed chunks for VAD analysis
@@ -186,7 +204,6 @@ async fn run_vad_capture(
                 if speech_buffer.len() > max_samples {
                     let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
                     if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
-                        // let duration = speech_buffer.len() as f32 / sr as f32;
                         let _ = app.emit("speech-detected", b64);
                     }
                     speech_buffer.clear();
@@ -218,7 +235,6 @@ async fn run_vad_capture(
                             // Emit complete speech segment
                             let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
                             if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
-                                // let duration = speech_buffer.len() as f32 / sr as f32;
                                 let _ = app.emit("speech-detected", b64);
                             } else {
                                 error!("Failed to encode speech to WAV");
@@ -262,6 +278,7 @@ async fn run_continuous_capture(
     stream: impl StreamExt<Item = f32> + Unpin,
     sr: u32,
     config: VadConfig,
+    cancel_token: CancellationToken,
 ) {
     let mut stream = stream;
     let max_samples = (sr as u64 * config.max_recording_duration_secs) as usize;
@@ -272,12 +289,12 @@ async fn run_continuous_capture(
     let max_duration = Duration::from_secs(config.max_recording_duration_secs);
 
     // Atomic flag for manual stop
-    let stop_flag = Arc::new(AtomicBool::new(false));
+    let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let stop_flag_for_listener = stop_flag.clone();
 
     // Listen for manual stop event
     let stop_listener = app.listen("manual-stop-continuous", move |_| {
-        stop_flag_for_listener.store(true, Ordering::Release);
+        stop_flag_for_listener.store(true, std::sync::atomic::Ordering::Release);
     });
 
     // Emit recording started
@@ -286,10 +303,9 @@ async fn run_continuous_capture(
         config.max_recording_duration_secs,
     );
 
-    // Accumulate audio - check stop flag on EVERY sample for immediate response
+    // Accumulate audio — check stop flag, cancellation token, and stream
     loop {
-        // Check stop flag FIRST on every iteration for immediate stopping
-        if stop_flag.load(Ordering::Acquire) {
+        if stop_flag.load(std::sync::atomic::Ordering::Acquire) {
             break;
         }
 
@@ -297,7 +313,7 @@ async fn run_continuous_capture(
             sample_opt = stream.next() => {
                 match sample_opt {
                     Some(sample) => {
-                        if stop_flag.load(Ordering::Acquire) {
+                        if stop_flag.load(std::sync::atomic::Ordering::Acquire) {
                             break;
                         }
 
@@ -326,6 +342,10 @@ async fn run_continuous_capture(
                     }
                 }
             }
+            _ = cancel_token.cancelled() => {
+                // Window destroyed — exit immediately
+                break;
+            }
             _ = tokio::time::sleep(tokio::time::Duration::from_millis(10)) => {
             }
         }
@@ -336,8 +356,6 @@ async fn run_continuous_capture(
 
     // Process and emit audio
     if !audio_buffer.is_empty() {
-        // let duration = start_time.elapsed().as_secs_f32();
-
         // Apply noise gate
         let cleaned_audio = apply_noise_gate(&audio_buffer, config.noise_gate_threshold);
         let cleaned_audio = normalize_audio_level(&cleaned_audio, 0.1);

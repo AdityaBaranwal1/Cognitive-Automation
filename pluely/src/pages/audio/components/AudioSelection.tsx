@@ -8,12 +8,12 @@ import {
 } from "@/components";
 import { MicIcon, RefreshCwIcon, HeadphonesIcon } from "lucide-react";
 import { useState } from "react";
-import { useApp } from "@/contexts";
+import { useAudio } from "@/contexts";
 import { STORAGE_KEYS } from "@/config/constants";
 import { safeLocalStorage } from "@/lib/storage";
 
 export const AudioSelection = () => {
-  const { selectedAudioDevices, setSelectedAudioDevices } = useApp();
+  const { selectedAudioDevices, setSelectedAudioDevices } = useAudio();
 
   const [devices, setDevices] = useState<{
     input: MediaDeviceInfo[];
@@ -139,8 +139,8 @@ export const AudioSelection = () => {
                       {isLoadingDevices
                         ? "Loading microphones..."
                         : devices.input.length === 0
-                        ? "No microphones found"
-                        : devices.input.find(
+                          ? "No microphones found"
+                          : devices.input.find(
                             (mic) => mic.deviceId === selectedAudioDevices.input
                           )?.label || "Select a microphone"}
                     </div>
@@ -235,8 +235,8 @@ export const AudioSelection = () => {
                       {isLoadingDevices
                         ? "Loading output devices..."
                         : devices.output.length === 0
-                        ? "No output devices found"
-                        : devices.output.find(
+                          ? "No output devices found"
+                          : devices.output.find(
                             (output) =>
                               output.deviceId === selectedAudioDevices.output
                           )?.label || "Select an output device"}

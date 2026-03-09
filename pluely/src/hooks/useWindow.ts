@@ -10,12 +10,17 @@ const isAnyPopoverOpen = (): boolean => {
   return popoverContents.length > 0;
 };
 
+// Check if workflow progress indicator is active (it manages its own height)
+const isWorkflowProgressActive = (): boolean => {
+  return !!document.querySelector('[data-workflow-active]');
+};
+
 export const useWindowResize = () => {
   const resizeWindow = useCallback(async (expanded: boolean) => {
     try {
       const window = getCurrentWebviewWindow();
 
-      if (!expanded && isAnyPopoverOpen()) {
+      if (!expanded && (isAnyPopoverOpen() || isWorkflowProgressActive())) {
         return;
       }
 
@@ -48,7 +53,7 @@ export const useWindowResize = () => {
         isDragging = false;
 
         setTimeout(() => {
-          if (!isAnyPopoverOpen()) {
+          if (!isAnyPopoverOpen() && !isWorkflowProgressActive()) {
             resizeWindow(false);
           }
         }, 100);
@@ -56,7 +61,7 @@ export const useWindowResize = () => {
     };
 
     const observer = new MutationObserver(() => {
-      if (!isAnyPopoverOpen()) {
+      if (!isAnyPopoverOpen() && !isWorkflowProgressActive()) {
         resizeWindow(false);
       }
     });

@@ -12,10 +12,10 @@ import type {
 } from "@/types";
 import { DEFAULT_SYSTEM_PROMPT, STORAGE_KEYS } from "@/config";
 import { safeLocalStorage } from "@/lib";
-import { useApp } from "@/contexts";
+import { useConfig } from "@/contexts";
 
 export const useSystemPrompts = () => {
-  const { setSystemPrompt } = useApp();
+  const { setSystemPrompt } = useConfig();
   const [prompts, setPrompts] = useState<SystemPrompt[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

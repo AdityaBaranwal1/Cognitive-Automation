@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   getAllConversations,
   deleteConversation,
@@ -172,11 +173,9 @@ export function useHistory(): UseHistoryReturn {
   };
 
   const handleAttachToOverlay = (conversationId: string) => {
-    // Use localStorage to communicate between windows
-    localStorage.setItem(
-      "pluely-conversation-selected",
-      JSON.stringify({ id: conversationId, timestamp: Date.now() })
-    );
+    const data = JSON.stringify({ id: conversationId, timestamp: Date.now() });
+    localStorage.setItem("app-conversation-selected", data);
+    invoke("save_persistent_data", { key: "app-conversation-selected", data }).catch(console.error);
     setIsAttached(true);
     setTimeout(() => {
       setIsAttached(false);

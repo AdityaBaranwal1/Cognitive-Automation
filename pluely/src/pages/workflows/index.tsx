@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { useApp, useSystemPrompts } from "@/contexts";
-import { Workflow, WorkflowStep, AIStepConfig, CaptureStepConfig, ActionNotificationConfig } from "@/types";
+import { useConfig, useWorkflow, useSystemPrompts } from "@/contexts";
+import { Workflow, WorkflowStep, AIStepConfig, CaptureStepConfig } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,12 +15,12 @@ import { PageLayout } from "@/layouts";
 import { HotkeyRecorder } from "@/components";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import curl2Json from "@bany/curl-to-json";
-import { deepVariableReplacer } from "@/lib/functions/common.function";
 import { WorkflowCanvas } from "./components/WorkflowCanvas";
 import { StepEditorSidebar } from "./components/StepEditorSidebar";
 
 const WorkflowEditor = () => {
-    const { workflows, saveWorkflow, updateWorkflow, deleteWorkflow, allAiProviders } = useApp();
+    const { allAiProviders } = useConfig();
+    const { workflows, saveWorkflow, updateWorkflow, deleteWorkflow } = useWorkflow();
     const { prompts: systemPrompts } = useSystemPrompts();
     const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
     const [isCapturing, setIsCapturing] = useState(false);
@@ -36,7 +36,7 @@ const WorkflowEditor = () => {
 
     // Listen for capture events
     useEffect(() => {
-        const unlisten = listen("captured-selection", (event) => {
+        const unlisten = listen("captured-selection", (_event) => {
             // Placeholder for future event handling
         });
 
@@ -67,7 +67,7 @@ const WorkflowEditor = () => {
         } else if (type === "ai_process") {
             config = { prompt: "", model: "qwen2-vl-2b-instruct", providerId: "lm-studio" } as AIStepConfig;
         } else if (type === "action_notification") {
-            config = { title: "Show in Chat Overlay" } as ActionNotificationConfig;
+            config = { title: "Show in Chat Overlay" };
         } else if (type === "keypress") {
             config = { key: "PageDown", modifiers: [] };
         } else if (type === "wait") {
@@ -321,7 +321,7 @@ const WorkflowEditor = () => {
                                     <div className="w-36 space-y-2 mr-4">
                                         <Label>Trigger Key</Label>
                                         <HotkeyRecorder
-                                            value={selectedWorkflow.trigger.key}
+                                            value={selectedWorkflow.trigger.key || ""}
                                             onChange={(key) => updateWorkflow({
                                                 ...selectedWorkflow,
                                                 trigger: { ...selectedWorkflow.trigger, key }
@@ -331,7 +331,7 @@ const WorkflowEditor = () => {
                                     <div className="w-36 space-y-2 border-l border-border/50 pl-4">
                                         <Label className="text-muted-foreground">Emergency Stop</Label>
                                         <HotkeyRecorder
-                                            value={selectedWorkflow.trigger.emergencyStopKey}
+                                            value={selectedWorkflow.trigger.emergencyStopKey || ""}
                                             onChange={(emergencyStopKey) => updateWorkflow({
                                                 ...selectedWorkflow,
                                                 trigger: { ...selectedWorkflow.trigger, emergencyStopKey }

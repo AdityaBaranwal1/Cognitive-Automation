@@ -3,9 +3,7 @@ use image::codecs::png::PngEncoder;
 use image::{ColorType, GenericImageView, ImageEncoder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::{thread, time::Duration};
+use std::time::Duration;
 use tauri::Emitter;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use xcap::Monitor;
@@ -25,22 +23,34 @@ pub struct MonitorInfo {
     pub image: image::RgbaImage,
 }
 
-// Store captured images from all monitors temporarily for cropping
+/// Inner session data protected by a single RwLock — no more split AtomicBool/Mutex.
+pub struct CaptureSession {
+    pub overlay_active: bool,
+    pub captured_monitors: HashMap<usize, MonitorInfo>,
+    pub selection: Option<SelectionCoords>,
+}
+
+impl Default for CaptureSession {
+    fn default() -> Self {
+        Self {
+            overlay_active: false,
+            captured_monitors: HashMap::new(),
+            selection: None,
+        }
+    }
+}
+
+/// All capture state behind a single tokio RwLock + Notify for region selection.
 pub struct CaptureState {
-    pub captured_monitors: Arc<Mutex<HashMap<usize, MonitorInfo>>>,
-    pub overlay_active: Arc<AtomicBool>,
-    // Async synchronization for region selection
-    pub selection: Arc<tokio::sync::Mutex<Option<SelectionCoords>>>,
-    pub notify: Arc<tokio::sync::Notify>,
+    pub session: tokio::sync::RwLock<CaptureSession>,
+    pub notify: tokio::sync::Notify,
 }
 
 impl Default for CaptureState {
     fn default() -> Self {
         Self {
-            captured_monitors: Arc::default(),
-            overlay_active: Arc::new(AtomicBool::new(false)),
-            selection: Arc::new(tokio::sync::Mutex::new(None)),
-            notify: Arc::new(tokio::sync::Notify::new()),
+            session: tokio::sync::RwLock::new(CaptureSession::default()),
+            notify: tokio::sync::Notify::new(),
         }
     }
 }
@@ -68,38 +78,36 @@ pub async fn start_screen_capture(app: tauri::AppHandle) -> Result<(), String> {
     }
 
     let state = app.state::<CaptureState>();
-    if state.overlay_active.load(Ordering::SeqCst) {
-        // Attempt to clean up any stale overlays before proceeding
-        let _ = close_overlay_window(app.clone());
-    }
-    state.overlay_active.store(true, Ordering::SeqCst);
-    let mut captured_monitors = HashMap::new();
 
-    // Capture all monitors and store their info
+    // --- HARDENED: Single write-lock held through the ENTIRE window-building process ---
+    // This prevents a second rapid hotkey from passing the overlay_active guard.
+    let mut session = state.session.write().await;
+
+    // If already active, clean up stale state first
+    if session.overlay_active {
+        session.captured_monitors.clear();
+        session.overlay_active = false;
+        destroy_overlay_windows(&app);
+    }
+
+    // Mark active immediately — any concurrent caller will see this and block at .write().await
+    session.overlay_active = true;
+
+    // Capture all monitors
+    let mut captured = HashMap::new();
     for (idx, monitor) in capture_monitors.iter().enumerate() {
         let captured_image = monitor.capture_image().map_err(|e| {
-            state.overlay_active.store(false, Ordering::SeqCst);
+            session.overlay_active = false;
             format!("Failed to capture monitor {}: {}", idx, e)
         })?;
-
-        let monitor_info = MonitorInfo {
-            image: captured_image,
-        };
-
-        captured_monitors.insert(idx, monitor_info);
+        captured.insert(idx, MonitorInfo { image: captured_image });
     }
-
-    // Store all captured monitors
-    *state.captured_monitors.lock().unwrap() = captured_monitors;
+    session.captured_monitors = captured;
 
     // Clean up any existing overlay windows before creating new ones
-    for (label, window) in app.webview_windows() {
-        if label.starts_with("capture-overlay-") {
-            window.destroy().ok();
-        }
-    }
+    destroy_overlay_windows(&app);
 
-    // Create overlay windows for all monitors
+    // Create overlay windows for all monitors — INSIDE the lock
     for (idx, monitor) in capture_monitors.iter().enumerate() {
         let (logical_width, logical_height, logical_x, logical_y) =
             if let Some(display) = tauri_monitors.get(idx) {
@@ -107,7 +115,6 @@ pub async fn start_screen_capture(app: tauri::AppHandle) -> Result<(), String> {
                 let size = display.size();
                 let position = display.position();
 
-                // Size values are in physical pixels; convert to logical units for window placement
                 let width = size.width as f64 / scale_factor;
                 let height = size.height as f64 / scale_factor;
                 let x = position.x as f64 / scale_factor;
@@ -115,7 +122,6 @@ pub async fn start_screen_capture(app: tauri::AppHandle) -> Result<(), String> {
 
                 (width, height, x, y)
             } else {
-                // Fallback to xcap monitor info if Tauri monitor data is unavailable/mismatched
                 (
                     monitor.width() as f64,
                     monitor.height() as f64,
@@ -144,12 +150,11 @@ pub async fn start_screen_capture(app: tauri::AppHandle) -> Result<(), String> {
                 .accept_first_mouse(true)
                 .build()
                 .map_err(|e| {
-                    state.overlay_active.store(false, Ordering::SeqCst);
+                    session.overlay_active = false;
                     format!("Failed to create overlay window {}: {}", idx, e)
                 })?;
 
-        // Wait a short moment for content to load before showing
-        thread::sleep(Duration::from_millis(100));
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         overlay.show().ok();
         overlay.set_always_on_top(true).ok();
@@ -163,7 +168,7 @@ pub async fn start_screen_capture(app: tauri::AppHandle) -> Result<(), String> {
     }
 
     // Give a moment for all windows to settle, then focus primary again
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     for (idx, monitor) in capture_monitors.iter().enumerate() {
         if monitor.is_primary() {
@@ -175,32 +180,40 @@ pub async fn start_screen_capture(app: tauri::AppHandle) -> Result<(), String> {
         }
     }
 
+    // Lock drops here — session is fully initialized, windows are built and visible
+    drop(session);
+
     Ok(())
 }
 
-// close overlay window
-#[tauri::command]
-pub fn close_overlay_window(app: tauri::AppHandle) -> Result<(), String> {
-    // Get all webview windows and close those that are capture overlays
-    let webview_windows = app.webview_windows();
-
-    for (label, window) in webview_windows.iter() {
+/// Helper: destroy all capture overlay windows (does NOT touch state).
+fn destroy_overlay_windows(app: &tauri::AppHandle) {
+    for (label, window) in app.webview_windows() {
         if label.starts_with("capture-overlay-") {
             window.destroy().ok();
         }
     }
+}
 
-    // Clear captured monitors from state
+// close overlay window
+#[tauri::command]
+pub async fn close_overlay_window(app: tauri::AppHandle) -> Result<(), String> {
+    destroy_overlay_windows(&app);
+
+    // Clear state under write lock
     let state = app.state::<CaptureState>();
-    state.captured_monitors.lock().unwrap().clear();
-    state.overlay_active.store(false, Ordering::SeqCst);
-
-    // Emit an event to the main window to signal that the overlay has been closed
-    if let Some(main_window) = app.get_webview_window("main") {
-        main_window.emit("capture-closed", ()).unwrap();
+    {
+        let mut session = state.session.write().await;
+        session.captured_monitors.clear();
+        session.overlay_active = false;
     }
-    
-    // Also notify any waiting tasks to unblock them (with None)
+
+    // Emit events after lock is dropped
+    if let Some(main_window) = app.get_webview_window("main") {
+        let _ = main_window.emit("capture-closed", ());
+    }
+
+    // Notify any waiting tasks to unblock them (with None)
     state.notify.notify_waiters();
 
     Ok(())
@@ -212,14 +225,18 @@ pub async fn capture_selected_area(
     coords: SelectionCoords,
     monitor_index: usize,
 ) -> Result<String, String> {
-    // Get the stored captured monitors
     let state = app.state::<CaptureState>();
-    let mut captured_monitors = state.captured_monitors.lock().unwrap();
 
-    let monitor_info = captured_monitors.remove(&monitor_index).ok_or({
-        state.overlay_active.store(false, Ordering::SeqCst);
-        format!("No captured image found for monitor {}", monitor_index)
-    })?;
+    // Extract the monitor image under write lock, then drop lock before heavy work
+    let monitor_info = {
+        let mut session = state.session.write().await;
+        let info = session.captured_monitors.remove(&monitor_index).ok_or_else(|| {
+            session.overlay_active = false;
+            format!("No captured image found for monitor {}", monitor_index)
+        })?;
+        session.captured_monitors.clear();
+        info
+    };
 
     // Validate coordinates
     if coords.width == 0 || coords.height == 0 {
@@ -251,22 +268,18 @@ pub async fn capture_selected_area(
 
     let base64_str = base64::engine::general_purpose::STANDARD.encode(png_buffer);
 
-    captured_monitors.clear();
-    drop(captured_monitors);
-
-    // Close all overlay windows
-    let webview_windows = app.webview_windows();
-    for (label, window) in webview_windows.iter() {
-        if label.starts_with("capture-overlay-") {
-            window.destroy().ok();
-        }
-    }
+    // Close overlay windows
+    destroy_overlay_windows(&app);
 
     // Emit event with base64 data
     app.emit("captured-selection", &base64_str)
         .map_err(|e| format!("Failed to emit captured-selection event: {}", e))?;
 
-    state.overlay_active.store(false, Ordering::SeqCst);
+    // Reset overlay state
+    {
+        let mut session = state.session.write().await;
+        session.overlay_active = false;
+    }
 
     Ok(base64_str)
 }
@@ -402,34 +415,34 @@ pub async fn capture_to_base64(window: tauri::WebviewWindow) -> Result<String, S
 
 #[tauri::command]
 pub async fn start_region_selection(app: tauri::AppHandle) -> Result<(), String> {
-    // Clear any previous selection
     let state = app.state::<CaptureState>();
-    *state.selection.lock().await = None;
 
-    // Reuse the overlay creation logic from select_region_coordinates
-    // But we don't need to duplicate the code if we just call the same logic.
-    // However, select_region_coordinates was just opening the window.
-    // Let's copy the logic here or refactor. 
-    // For safety and to avoid deleting code, I'll implement the overlay opening logic here again
-    // effectively replacing select_region_coordinates's purpose but with the new name.
-    
-    // Get all monitors
+    // --- HARDENED: Single write-lock held through the ENTIRE window-building process ---
+    let mut session = state.session.write().await;
+
+    // Clear any previous selection
+    session.selection = None;
+
+    // If already active, clean up stale state first
+    if session.overlay_active {
+        session.overlay_active = false;
+        destroy_overlay_windows(&app);
+    }
+
+    // Mark active — any concurrent caller blocks at .write().await
+    session.overlay_active = true;
+
     let capture_monitors = Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
-
     if capture_monitors.is_empty() {
+        session.overlay_active = false;
         return Err("No monitors found".to_string());
     }
 
-    // Get monitor layout info from Tauri for accurate sizing/positioning
     let tauri_monitors = app
         .available_monitors()
         .map_err(|e| format!("Failed to get monitor layout: {}", e))?;
 
-    if state.overlay_active.load(Ordering::SeqCst) {
-        let _ = close_overlay_window(app.clone());
-    }
-    state.overlay_active.store(true, Ordering::SeqCst);
-    
+    // Create overlay windows — INSIDE the lock
     for (idx, monitor) in capture_monitors.iter().enumerate() {
         let (logical_width, logical_height, logical_x, logical_y) =
             if let Some(display) = tauri_monitors.get(idx) {
@@ -472,11 +485,11 @@ pub async fn start_region_selection(app: tauri::AppHandle) -> Result<(), String>
                 .accept_first_mouse(true)
                 .build()
                 .map_err(|e| {
-                    state.overlay_active.store(false, Ordering::SeqCst);
+                    session.overlay_active = false;
                     format!("Failed to create overlay window {}: {}", idx, e)
                 })?;
 
-        thread::sleep(Duration::from_millis(100));
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         overlay.show().ok();
         overlay.set_always_on_top(true).ok();
@@ -488,7 +501,10 @@ pub async fn start_region_selection(app: tauri::AppHandle) -> Result<(), String>
                 .ok();
         }
     }
-    
+
+    // Lock drops here — session is fully initialized, windows are built and visible
+    drop(session);
+
     Ok(())
 }
 
@@ -498,31 +514,36 @@ pub async fn submit_region_selection(
     coords: SelectionCoords,
 ) -> Result<(), String> {
     let state = app.state::<CaptureState>();
-    
-    // Store the selection
-    *state.selection.lock().await = Some(coords);
-    
+
+    // Store the selection under write lock
+    {
+        let mut session = state.session.write().await;
+        session.selection = Some(coords);
+    }
+
     // Notify waiting tasks
     state.notify.notify_one();
-    
+
     // Close the overlay
-    let _ = close_overlay_window(app);
-    
+    let _ = close_overlay_window(app).await;
+
     Ok(())
 }
 
 #[tauri::command]
 pub async fn wait_for_region_selection(app: tauri::AppHandle) -> Result<SelectionCoords, String> {
     let state = app.state::<CaptureState>();
-    
-    // Wait for notification with timeout (e.g. 60 seconds)
-    // We use tokio::time::timeout
+
+    // Wait for notification with timeout (60 seconds)
     let result = tokio::time::timeout(Duration::from_secs(60), state.notify.notified()).await;
-    
+
     match result {
         Ok(_) => {
-            // Notification received
-            let selection = state.selection.lock().await.clone();
+            // Notification received — read selection under read lock
+            let selection = {
+                let session = state.session.read().await;
+                session.selection.clone()
+            };
             match selection {
                 Some(coords) => Ok(coords),
                 None => Err("Selection cancelled or failed".to_string()),
@@ -530,7 +551,7 @@ pub async fn wait_for_region_selection(app: tauri::AppHandle) -> Result<Selectio
         }
         Err(_) => {
             // Timeout
-            let _ = close_overlay_window(app);
+            let _ = close_overlay_window(app).await;
             Err("Selection timed out".to_string())
         }
     }
@@ -538,7 +559,7 @@ pub async fn wait_for_region_selection(app: tauri::AppHandle) -> Result<Selectio
 
 #[tauri::command]
 pub async fn capture_area_silent(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     coords: SelectionCoords,
     monitor_index: usize,
 ) -> Result<String, String> {
@@ -611,97 +632,100 @@ pub async fn capture_screen_silent(
     Ok(base64_str)
 }
 
-/// Stitch multiple images vertically into a single image
-/// 
+/// Stitch multiple images vertically into a single image.
+///
+/// # Memory-Optimized Design (Two-Pass Sequential)
+/// - **Pass 1**: Decode each image to read its (width, height), then immediately drop it.
+///   This determines max_width and total_height with only ~33MB peak (one 4K image at a time).
+/// - **Pass 2**: Allocate the output buffer once, then re-decode each image one at a time,
+///   copy via `imageops::overlay`, and drop before loading the next.
+///   Peak memory: 1 decoded input + output = ~100MB instead of ~332MB for 5× 4K.
+///
 /// # Arguments
 /// * `images_base64` - Vector of base64-encoded PNG images to stitch
 /// * `max_count` - Maximum number of images to stitch (default: 5, prevents memory issues)
-/// * `scale_factor` - Scale factor for resizing (0.0-1.0, default: 1.0 = no scaling)
-/// 
-/// # Returns
-/// Single base64-encoded PNG of the stitched result
-/// 
-/// # Design Notes
-/// - Early exit if only 1 image (just returns it unchanged)
-/// - Compatible with loop accumulation (Phase 4) - accepts any number of images
-/// - Downscales if scale_factor < 1.0 to reduce memory usage
+/// * `scale_factor` - Scale factor for resizing (0.1-1.0, default: 1.0 = no scaling)
 #[tauri::command]
 pub async fn stitch_images_vertical(
     images_base64: Vec<String>,
     max_count: Option<u32>,
     scale_factor: Option<f32>,
 ) -> Result<String, String> {
-    // Apply defaults
     let max_count = max_count.unwrap_or(5) as usize;
     let scale_factor = scale_factor.unwrap_or(1.0).clamp(0.1, 1.0);
-    
-    // Early exit: no images
+    let apply_scale = (scale_factor - 1.0).abs() > 0.01;
+
     if images_base64.is_empty() {
         return Err("No images provided for stitching".to_string());
     }
-    
-    // Early exit: single image, just return it (optionally scaled)
-    if images_base64.len() == 1 {
-        if (scale_factor - 1.0).abs() < 0.01 {
-            return Ok(images_base64.into_iter().next().unwrap());
-        }
-        // Fall through to apply scaling
+
+    // Early exit: single image with no scaling
+    if images_base64.len() == 1 && !apply_scale {
+        return Ok(images_base64.into_iter().next().unwrap());
     }
-    
-    // Limit number of images
+
     let images_to_stitch: Vec<_> = images_base64.into_iter().take(max_count).collect();
-    
-    // Decode all images
-    let mut decoded_images: Vec<image::DynamicImage> = Vec::with_capacity(images_to_stitch.len());
-    
-    for (i, base64_str) in images_to_stitch.iter().enumerate() {
+
+    // --- Pass 1: Dimensions only (decode, measure, drop) ---
+    let mut dimensions: Vec<(u32, u32)> = Vec::with_capacity(images_to_stitch.len());
+
+    for (i, b64) in images_to_stitch.iter().enumerate() {
         let bytes = base64::engine::general_purpose::STANDARD
-            .decode(base64_str)
+            .decode(b64)
             .map_err(|e| format!("Failed to decode image {}: {}", i, e))?;
-        
+
         let img = image::load_from_memory(&bytes)
             .map_err(|e| format!("Failed to parse image {}: {}", i, e))?;
-        
-        // Apply scaling if needed
-        let img = if (scale_factor - 1.0).abs() > 0.01 {
-            let new_width = (img.width() as f32 * scale_factor) as u32;
-            let new_height = (img.height() as f32 * scale_factor) as u32;
-            img.resize(new_width, new_height, image::imageops::FilterType::Lanczos3)
+
+        let (w, h) = if apply_scale {
+            (
+                (img.width() as f32 * scale_factor) as u32,
+                (img.height() as f32 * scale_factor) as u32,
+            )
         } else {
-            img
+            (img.width(), img.height())
         };
-        
-        decoded_images.push(img);
+
+        dimensions.push((w, h));
+        // `img` dropped here — frees ~33MB per 4K screenshot
     }
-    
-    // Calculate total dimensions (all images must have same width, or we use max width)
-    let max_width = decoded_images.iter().map(|img| img.width()).max().unwrap_or(0);
-    let total_height: u32 = decoded_images.iter().map(|img| img.height()).sum();
-    
+
+    let max_width = dimensions.iter().map(|(w, _)| *w).max().unwrap_or(0);
+    let total_height: u32 = dimensions.iter().map(|(_, h)| *h).sum();
+
     if max_width == 0 || total_height == 0 {
         return Err("Invalid image dimensions".to_string());
     }
-    
-    // Create the stitched image
+
+    // --- Pass 2: Sequential decode + overlay into pre-allocated output ---
     let mut stitched = image::RgbaImage::new(max_width, total_height);
-    
     let mut y_offset: u32 = 0;
-    for img in decoded_images {
+
+    for (i, b64) in images_to_stitch.iter().enumerate() {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| format!("Failed to re-decode image {}: {}", i, e))?;
+
+        let img = image::load_from_memory(&bytes)
+            .map_err(|e| format!("Failed to re-parse image {}: {}", i, e))?;
+
+        let img = if apply_scale {
+            let (w, h) = dimensions[i];
+            img.resize_exact(w, h, image::imageops::FilterType::Lanczos3)
+        } else {
+            img
+        };
+
         let rgba = img.to_rgba8();
-        
-        // Center horizontally if image is narrower than max_width
         let x_offset = (max_width - rgba.width()) / 2;
-        
-        // Copy pixels
-        for (x, y, pixel) in rgba.enumerate_pixels() {
-            if x + x_offset < max_width && y + y_offset < total_height {
-                stitched.put_pixel(x + x_offset, y + y_offset, *pixel);
-            }
-        }
-        
+
+        // Fast bulk copy instead of per-pixel put_pixel
+        image::imageops::overlay(&mut stitched, &rgba, x_offset as i64, y_offset as i64);
+
         y_offset += rgba.height();
+        // `img` and `rgba` dropped here — only one input image in memory at a time
     }
-    
+
     // Encode to PNG and base64
     let mut png_buffer = Vec::new();
     PngEncoder::new(&mut png_buffer)
@@ -712,9 +736,9 @@ pub async fn stitch_images_vertical(
             ColorType::Rgba8.into(),
         )
         .map_err(|e| format!("Failed to encode stitched image: {}", e))?;
-    
+
     let result_base64 = base64::engine::general_purpose::STANDARD.encode(png_buffer);
-    
+
     Ok(result_base64)
 }
 

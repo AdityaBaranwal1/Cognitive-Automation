@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useApp } from "@/contexts";
+import { useConfig } from "@/contexts";
 import { COMMON_CONTEXT_SIZES, getProviderDefaults } from "@/config";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import curl2Json from "@bany/curl-to-json";
@@ -24,7 +24,7 @@ export interface ModelTesterState {
  * Uses smart testing with common breakpoints instead of blind binary search.
  */
 export const useModelTester = () => {
-    const { allAiProviders, selectedAIProvider } = useApp();
+    const { allAiProviders, selectedAIProvider } = useConfig();
 
     const [state, setState] = useState<ModelTesterState>({
         isTestingVision: false,

@@ -2,7 +2,7 @@ import { InfoIcon, MicIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger, Button } from "@/components";
 import { AutoSpeechVAD } from "./AutoSpeechVad";
 import { UseCompletionReturn } from "@/types";
-import { useApp } from "@/contexts";
+import { useConfig, useAudio } from "@/contexts";
 
 export const Audio = ({
   micOpen,
@@ -12,15 +12,15 @@ export const Audio = ({
   submit,
   setState,
 }: UseCompletionReturn) => {
-  const { selectedSttProvider, pluelyApiEnabled, selectedAudioDevices } =
-    useApp();
+  const { selectedSttProvider } = useConfig();
+  const { selectedAudioDevices } = useAudio();
 
   const speechProviderStatus = selectedSttProvider.provider;
 
   return (
     <Popover open={micOpen} onOpenChange={setMicOpen}>
       <PopoverTrigger asChild>
-        {(pluelyApiEnabled || speechProviderStatus) && enableVAD ? (
+        {speechProviderStatus && enableVAD ? (
           <AutoSpeechVAD
             key={selectedAudioDevices.input}
             submit={submit}
@@ -45,9 +45,8 @@ export const Audio = ({
       <PopoverContent
         align="end"
         side="bottom"
-        className={`w-80 p-3 ${
-          pluelyApiEnabled || speechProviderStatus ? "hidden" : ""
-        }`}
+        className={`w-80 p-3 ${speechProviderStatus ? "hidden" : ""
+          }`}
         sideOffset={8}
       >
         <div className="text-sm select-none">

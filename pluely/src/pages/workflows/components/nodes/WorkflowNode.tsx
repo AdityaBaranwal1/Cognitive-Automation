@@ -8,9 +8,11 @@ import {
     Keyboard,
     Send,
     Pause,
-    Zap
+    Zap,
+    Loader2
 } from 'lucide-react';
 import type { WorkflowNodeData } from '../../hooks/useWorkflowGraph';
+import type { WorkflowExecutionStatus } from '@/types';
 
 // Icon mapping for step types
 const stepIcons: Record<string, React.ElementType> = {
@@ -125,12 +127,27 @@ interface WorkflowNodeProps extends NodeProps {
     data: WorkflowNodeData;
 }
 
+// Get status label for active nodes
+function getStatusLabel(status: WorkflowExecutionStatus | null): string {
+    switch (status) {
+        case 'ai_thinking': return 'AI Thinking...';
+        case 'capturing': return 'Capturing...';
+        case 'waiting': return 'Waiting...';
+        case 'running': return 'Running...';
+        case 'completed': return 'Done';
+        case 'error': return 'Error';
+        default: return '';
+    }
+}
+
 export function WorkflowNode({ data, selected }: WorkflowNodeProps) {
     const [isHovered, setIsHovered] = useState(false);
     const Icon = stepIcons[data.type] || Zap;
     const summary = getNodeSummary(data);
     const accentColor = stepColors[data.type] || '#6366f1';
     const tooltipContent = getTooltipContent(data);
+    const isActive = data.isActive;
+    const executionStatus = data.executionStatus;
 
     // User's custom name (from step.name) vs system type label
     const userName = data.name && data.name.trim() ? data.name : null;
@@ -187,15 +204,22 @@ export function WorkflowNode({ data, selected }: WorkflowNodeProps) {
                     maxWidth: 260,
                     padding: '12px 16px',
                     borderRadius: 12,
-                    border: `2px solid ${selected ? accentColor : 'rgba(255,255,255,0.1)'}`,
-                    background: selected
+                    border: `2px solid ${isActive ? accentColor : selected ? accentColor : 'rgba(255,255,255,0.1)'}`,
+                    background: isActive
                         ? `linear-gradient(135deg, rgba(0,0,0,0.95) 0%, rgba(30,30,40,0.95) 100%)`
-                        : 'rgba(20,20,25,0.95)',
-                    boxShadow: selected
-                        ? `0 0 20px ${accentColor}40, 0 4px 12px rgba(0,0,0,0.5)`
-                        : '0 4px 12px rgba(0,0,0,0.3)',
+                        : selected
+                            ? `linear-gradient(135deg, rgba(0,0,0,0.95) 0%, rgba(30,30,40,0.95) 100%)`
+                            : 'rgba(20,20,25,0.95)',
+                    boxShadow: isActive
+                        ? `0 0 20px ${accentColor}60, 0 0 40px ${accentColor}30, 0 4px 12px rgba(0,0,0,0.5)`
+                        : selected
+                            ? `0 0 20px ${accentColor}40, 0 4px 12px rgba(0,0,0,0.5)`
+                            : '0 4px 12px rgba(0,0,0,0.3)',
                     cursor: 'pointer',
-                    transition: 'all 0.15s ease',
+                    transition: 'all 0.3s ease',
+                    animation: isActive ? 'workflow-node-pulse 2s ease-in-out infinite' : 'none',
+                    position: 'relative',
+                    overflow: 'visible',
                 }}
             >
                 {/* Input Handle */}
@@ -278,6 +302,35 @@ export function WorkflowNode({ data, selected }: WorkflowNodeProps) {
                     </div>
                 </div>
 
+                {/* Active Status Badge */}
+                {isActive && executionStatus && (
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        marginTop: 8,
+                        padding: '4px 8px',
+                        borderRadius: 6,
+                        background: `${accentColor}15`,
+                        border: `1px solid ${accentColor}30`,
+                    }}>
+                        <Loader2 style={{
+                            width: 12,
+                            height: 12,
+                            color: accentColor,
+                            animation: 'spin 1s linear infinite',
+                        }} />
+                        <span style={{
+                            fontSize: 10,
+                            fontWeight: 600,
+                            color: accentColor,
+                            letterSpacing: '0.02em',
+                        }}>
+                            {getStatusLabel(executionStatus)}
+                        </span>
+                    </div>
+                )}
+
                 {/* Output Handle */}
                 <Handle
                     type="source"
@@ -285,10 +338,24 @@ export function WorkflowNode({ data, selected }: WorkflowNodeProps) {
                     style={{
                         width: 10,
                         height: 10,
-                        background: '#666',
+                        background: isActive ? accentColor : '#666',
                         border: '2px solid #1a1a1a',
                     }}
                 />
+
+                {/* CSS Animation (injected via style tag) */}
+                {isActive && (
+                    <style>{`
+                        @keyframes workflow-node-pulse {
+                            0%, 100% { box-shadow: 0 0 20px ${accentColor}60, 0 0 40px ${accentColor}30, 0 4px 12px rgba(0,0,0,0.5); }
+                            50% { box-shadow: 0 0 30px ${accentColor}80, 0 0 60px ${accentColor}40, 0 4px 16px rgba(0,0,0,0.6); }
+                        }
+                        @keyframes spin {
+                            from { transform: rotate(0deg); }
+                            to { transform: rotate(360deg); }
+                        }
+                    `}</style>
+                )}
             </div>
         </div>
     );

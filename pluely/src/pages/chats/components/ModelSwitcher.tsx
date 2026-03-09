@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, RefreshCwIcon, Loader2Icon, SparklesIcon, BrainIcon, CheckIcon } from "lucide-react";
-import { useApp } from "@/contexts";
+import { useConfig } from "@/contexts";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import curl2Json from "@bany/curl-to-json";
 import { getProfiles } from "@/lib/storage/model-profiles.storage";
@@ -38,7 +38,7 @@ export const ModelSwitcher = ({
     currentProfileId,
     onSwitch,
 }: ModelSwitcherProps) => {
-    const { allAiProviders, selectedAIProvider } = useApp();
+    const { allAiProviders, selectedAIProvider } = useConfig();
     const [providerModels, setProviderModels] = useState<Map<string, ProviderModels>>(new Map());
     const [isOpen, setIsOpen] = useState(false);
     const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>(currentProfileId);

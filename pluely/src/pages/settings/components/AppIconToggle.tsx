@@ -1,12 +1,12 @@
 import { Switch, Label, Header } from "@/components";
-import { useApp } from "@/contexts";
+import { useConfig } from "@/contexts";
 
 interface AppIconToggleProps {
   className?: string;
 }
 
 export const AppIconToggle = ({ className }: AppIconToggleProps) => {
-  const { customizable, toggleAppIconVisibility } = useApp();
+  const { customizable, toggleAppIconVisibility } = useConfig();
 
   const handleSwitchChange = async (checked: boolean) => {
     await toggleAppIconVisibility(checked);
@@ -28,9 +28,8 @@ export const AppIconToggle = ({ className }: AppIconToggleProps) => {
                 : "Hide Icon from Dock/Taskbar"}
             </Label>
             <p className="text-xs text-muted-foreground mt-1">
-              {`Toggle to make App Icon ${
-                !customizable.appIcon.isVisible ? "Visible" : "Hidden"
-              }`}
+              {`Toggle to make App Icon ${!customizable.appIcon.isVisible ? "Visible" : "Hidden"
+                }`}
             </p>
           </div>
         </div>

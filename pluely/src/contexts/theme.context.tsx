@@ -1,4 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { STORAGE_KEYS } from "@/config/";
 
 type Theme = "dark" | "light" | "system";
@@ -42,18 +44,20 @@ export function ThemeProvider({
   const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
   const isSystemThemeDark = mediaQuery.matches;
 
+  // --- Tauri push-based cross-window sync (replaces window.addEventListener("storage")) ---
   useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEYS.TRANSPARENCY && e.newValue) {
-        setTransparency(parseInt(e.newValue, 10));
+    const unlisten = listen<string>("data-updated", (event) => {
+      const key = event.payload;
+      if (key === STORAGE_KEYS.TRANSPARENCY) {
+        const stored = localStorage.getItem(STORAGE_KEYS.TRANSPARENCY);
+        if (stored) setTransparency(parseInt(stored, 10));
       }
-      if (e.key === storageKey && e.newValue) {
-        setTheme(e.newValue as Theme);
+      if (key === storageKey) {
+        const stored = localStorage.getItem(storageKey);
+        if (stored) setTheme(stored as Theme);
       }
-    };
-
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
+    });
+    return () => { unlisten.then((fn) => fn()); };
   }, [storageKey]);
 
   useEffect(() => {
@@ -106,8 +110,10 @@ export function ThemeProvider({
   }, [transparency]);
 
   const onSetTransparency = (transparency: number) => {
-    localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, transparency.toString());
+    const value = transparency.toString();
+    localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, value);
     setTransparency(transparency);
+    invoke("save_persistent_data", { key: STORAGE_KEYS.TRANSPARENCY, data: value }).catch(console.error);
   };
 
   const value = {
@@ -115,6 +121,7 @@ export function ThemeProvider({
     setTheme: (newTheme: Theme) => {
       localStorage.setItem(storageKey, newTheme);
       setTheme(newTheme);
+      invoke("save_persistent_data", { key: storageKey, data: newTheme }).catch(console.error);
     },
     isSystemThemeDark,
     transparency,

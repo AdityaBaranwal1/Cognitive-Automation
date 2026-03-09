@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useApp } from "@/contexts";
+import { useConfig } from "@/contexts";
 import {
   extractVariables,
   safeLocalStorage,
@@ -17,8 +17,7 @@ export const useSettings = () => {
     selectedSttProvider,
     onSetSelectedAIProvider,
     onSetSelectedSttProvider,
-    hasActiveLicense,
-  } = useApp();
+  } = useConfig();
   const [variables, setVariables] = useState<{ key: string; value: string }[]>(
     []
   );
@@ -50,9 +49,6 @@ export const useSettings = () => {
   };
 
   const handleScreenshotEnabledChange = (enabled: boolean) => {
-    if (!enabled && !hasActiveLicense) {
-      return;
-    }
     const newConfig = { ...screenshotConfiguration, enabled };
     setScreenshotConfiguration(newConfig);
     safeLocalStorage.setItem(
@@ -111,6 +107,5 @@ export const useSettings = () => {
     setShowDeleteConfirmDialog,
     variables,
     sttVariables,
-    hasActiveLicense,
   };
 };

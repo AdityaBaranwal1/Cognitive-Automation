@@ -4,37 +4,11 @@ import {
   blobToBase64,
 } from "./common.function";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { invoke } from "@tauri-apps/api/core";
 
 import { TYPE_PROVIDER } from "@/types";
 import curl2Json from "@bany/curl-to-json";
-import { shouldUsePluelyAPI } from "./pluely.api";
 
-// Pluely STT function
-async function fetchPluelySTT(audio: File | Blob): Promise<string> {
-  try {
-    // Convert audio to base64
-    const audioBase64 = await blobToBase64(audio);
 
-    // Call Tauri command
-    const response = await invoke<{
-      success: boolean;
-      transcription?: string;
-      error?: string;
-    }>("transcribe_audio", {
-      audioBase64,
-    });
-
-    if (response.success && response.transcription) {
-      return response.transcription;
-    } else {
-      return response.error || "Transcription failed";
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    return `Pluely STT Error: ${errorMessage}`;
-  }
-}
 
 export interface STTParams {
   provider: TYPE_PROVIDER | undefined;
@@ -54,11 +28,7 @@ export async function fetchSTT(params: STTParams): Promise<string> {
   try {
     const { provider, selectedProvider, audio } = params;
 
-    // Check if we should use Pluely API instead
-    const usePluelyAPI = await shouldUsePluelyAPI();
-    if (usePluelyAPI) {
-      return await fetchPluelySTT(audio);
-    }
+
 
     if (!provider) throw new Error("Provider not provided");
     if (!selectedProvider) throw new Error("Selected provider not provided");
@@ -69,8 +39,7 @@ export async function fetchSTT(params: STTParams): Promise<string> {
       curlJson = curl2Json(provider.curl);
     } catch (error) {
       throw new Error(
-        `Failed to parse curl: ${
-          error instanceof Error ? error.message : "Unknown error"
+        `Failed to parse curl: ${error instanceof Error ? error.message : "Unknown error"
         }`
       );
     }
@@ -203,7 +172,7 @@ export async function fetchSTT(params: STTParams): Promise<string> {
       let errText = "";
       try {
         errText = await response.text();
-      } catch {}
+      } catch { }
       let errMsg: string;
       try {
         const errObj = JSON.parse(errText);

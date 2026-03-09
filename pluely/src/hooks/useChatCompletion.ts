@@ -1,12 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useApp } from "@/contexts";
+import { useConfig, useAudio } from "@/contexts";
 import { MAX_FILES } from "@/config";
 import {
   fetchAIResponse,
   saveConversation,
   getConversationById,
   generateConversationTitle,
-  shouldUsePluelyAPI,
   MESSAGE_ID_OFFSET,
   generateMessageId,
   generateRequestId,
@@ -15,34 +14,9 @@ import {
   saveProfile,
   getProfileById,
 } from "@/lib";
+import { AttachedFile, ChatMessage, ChatConversation } from "@/types";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-
-// Types for completion
-interface AttachedFile {
-  id: string;
-  name: string;
-  type: string;
-  base64: string;
-  size: number;
-}
-
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  timestamp: number;
-}
-
-interface ChatConversation {
-  id: string;
-  title: string;
-  messages: ChatMessage[];
-  createdAt: number;
-  updatedAt: number;
-  providerId?: string;  // Provider used to create this conversation (hybrid: falls back to global if not set)
-  model?: string;       // Model used to create this conversation
-}
 
 interface ChatCompletionState {
   input: string;
@@ -64,9 +38,8 @@ export const useChatCompletion = (
     setScreenshotConfiguration,
     selectedSttProvider,
     allSttProviders,
-    selectedAudioDevices,
-    hasActiveLicense,
-  } = useApp();
+  } = useConfig();
+  const { selectedAudioDevices } = useAudio();
 
   const [state, setState] = useState<ChatCompletionState>({
     input: "",
@@ -166,7 +139,6 @@ export const useChatCompletion = (
           content: msg.content,
         }));
 
-        const usePluelyAPI = await shouldUsePluelyAPI();
 
         // HYBRID PROVIDER LOGIC: Use conversation's stored provider if available, otherwise fall back to global
         const effectiveProviderId = messages?.providerId || selectedAIProvider.provider;
@@ -193,7 +165,7 @@ export const useChatCompletion = (
         }
 
         // Check if AI provider is configured
-        if (!effectiveProviderId && !usePluelyAPI) {
+        if (!effectiveProviderId) {
           setState((prev) => ({
             ...prev,
             error: "Please select an AI provider in settings",
@@ -204,7 +176,7 @@ export const useChatCompletion = (
         const provider = allAiProviders.find(
           (p) => p.id === effectiveProviderId
         );
-        if (!provider && !usePluelyAPI) {
+        if (!provider) {
           setState((prev) => ({
             ...prev,
             error: "Invalid provider selected",
@@ -244,7 +216,7 @@ export const useChatCompletion = (
         try {
           // Use the fetchAIResponse function with signal
           for await (const chunk of fetchAIResponse({
-            provider: usePluelyAPI ? undefined : provider,
+            provider: provider,
             selectedProvider: {
               provider: effectiveProviderId || selectedAIProvider.provider,
               variables: {
@@ -635,7 +607,7 @@ export const useChatCompletion = (
             setState((prev) => ({
               ...prev,
               error:
-                "Screen Recording permission required. Please enable it by going to System Settings > Privacy & Security > Screen & System Audio Recording. If you don't see Pluely in the list, click the '+' button to add it. If it's already listed, make sure it's enabled. Then restart the app.",
+                "Screen Recording permission required. Please enable it by going to System Settings > Privacy & Security > Screen & System Audio Recording. If you don't see the app in the list, click the '+' button to add it. If it's already listed, make sure it's enabled. Then restart the app.",
             }));
             setIsScreenshotLoading(false);
             screenshotInitiatedByThisContext.current = false;
@@ -659,16 +631,7 @@ export const useChatCompletion = (
         screenshotInitiatedByThisContext.current = false;
       } else {
         // Selection Mode: Open overlay to select an area
-        // Only allow if user has active license
-        if (!hasActiveLicense) {
-          setState((prev) => ({
-            ...prev,
-            error: "Selection mode requires an active license",
-          }));
-          setIsScreenshotLoading(false);
-          screenshotInitiatedByThisContext.current = false;
-          return;
-        }
+
         isProcessingScreenshotRef.current = false;
         await invoke("start_screen_capture");
       }
@@ -684,7 +647,7 @@ export const useChatCompletion = (
         setIsScreenshotLoading(false);
       }
     }
-  }, [handleScreenshotSubmit, hasActiveLicense]);
+  }, [handleScreenshotSubmit]);
 
   useEffect(() => {
     let unlisten: any;
@@ -788,6 +751,5 @@ export const useChatCompletion = (
     selectedSttProvider,
     allSttProviders,
     selectedAudioDevices,
-    hasActiveLicense,
   };
 };

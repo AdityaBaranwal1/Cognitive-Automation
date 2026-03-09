@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components";
 import { AudioVisualizer } from "@/pages/app/components/speech/audio-visualizer";
-import { shouldUsePluelyAPI, fetchSTT } from "@/lib";
-import { useApp } from "@/contexts";
+import { fetchSTT } from "@/lib";
+import { useConfig } from "@/contexts";
 import { StopCircle, Send } from "lucide-react";
 
 interface AudioRecorderProps {
@@ -16,7 +16,7 @@ export const AudioRecorder = ({
   onTranscriptionComplete,
   onCancel,
 }: AudioRecorderProps) => {
-  const { selectedSttProvider, allSttProviders } = useApp();
+  const { selectedSttProvider, allSttProviders } = useConfig();
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -107,13 +107,12 @@ export const AudioRecorder = ({
     try {
       const audioBlob = new Blob(chunks, { type: mimeType });
 
-      const usePluelyAPI = await shouldUsePluelyAPI();
       const provider = allSttProviders.find(
         (p) => p.id === selectedSttProvider.provider
       );
 
       const text = await fetchSTT({
-        provider: usePluelyAPI ? undefined : provider,
+        provider: provider,
         selectedProvider: selectedSttProvider,
         audio: audioBlob,
       });

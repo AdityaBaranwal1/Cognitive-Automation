@@ -11,7 +11,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useApp } from "@/contexts";
+import { useConfig } from "@/contexts";
 import { useModelTester, TestResult } from "@/hooks/useModelTester";
 import {
     getProfiles,
@@ -39,7 +39,7 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
  * Lives in Dev Space below provider config.
  */
 export const ModelManager = () => {
-    const { allAiProviders, selectedAIProvider } = useApp();
+    const { allAiProviders, selectedAIProvider } = useConfig();
     const tester = useModelTester();
 
     // State

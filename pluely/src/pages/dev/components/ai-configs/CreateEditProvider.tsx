@@ -9,7 +9,7 @@ import {
 } from "@/components";
 import { PlusIcon, SaveIcon } from "lucide-react";
 import { useCustomAiProviders } from "@/hooks";
-import { useApp } from "@/contexts";
+import { useConfig } from "@/contexts";
 import { cn } from "@/lib/utils";
 
 interface CreateEditProviderProps {
@@ -19,7 +19,7 @@ interface CreateEditProviderProps {
 export const CreateEditProvider = ({
   customProviderHook,
 }: CreateEditProviderProps) => {
-  const { allAiProviders } = useApp();
+  const { allAiProviders } = useConfig();
   // Use the provided hook instance or create a new one
   const hookInstance = customProviderHook || useCustomAiProviders();
 

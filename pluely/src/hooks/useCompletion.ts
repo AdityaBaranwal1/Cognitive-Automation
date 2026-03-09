@@ -2,55 +2,20 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useWindowResize } from "./useWindow";
 import { useGlobalShortcuts } from "@/hooks";
 import { MAX_FILES } from "@/config";
-import { useApp } from "@/contexts";
+import { useConfig } from "@/contexts";
 import {
   fetchAIResponse,
   saveConversation,
   getConversationById,
   generateConversationTitle,
-  shouldUsePluelyAPI,
   MESSAGE_ID_OFFSET,
   generateConversationId,
   generateMessageId,
   generateRequestId,
-  getResponseSettings,
 } from "@/lib";
+import { AttachedFile, ChatMessage, ChatConversation, CompletionState } from "@/types";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-
-// Types for completion
-interface AttachedFile {
-  id: string;
-  name: string;
-  type: string;
-  base64: string;
-  size: number;
-}
-
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  timestamp: number;
-}
-
-interface ChatConversation {
-  id: string;
-  title: string;
-  messages: ChatMessage[];
-  createdAt: number;
-  updatedAt: number;
-}
-
-interface CompletionState {
-  input: string;
-  response: string;
-  isLoading: boolean;
-  error: string | null;
-  attachedFiles: AttachedFile[];
-  currentConversationId: string | null;
-  conversationHistory: ChatMessage[];
-}
 
 export const useCompletion = () => {
   const {
@@ -59,7 +24,7 @@ export const useCompletion = () => {
     systemPrompt,
     screenshotConfiguration,
     setScreenshotConfiguration,
-  } = useApp();
+  } = useConfig();
   const globalShortcuts = useGlobalShortcuts();
 
   const [state, setState] = useState<CompletionState>({
@@ -179,9 +144,8 @@ export const useCompletion = () => {
 
         let fullResponse = "";
 
-        const usePluelyAPI = await shouldUsePluelyAPI();
         // Check if AI provider is configured
-        if (!selectedAIProvider.provider && !usePluelyAPI) {
+        if (!selectedAIProvider.provider) {
           setState((prev) => ({
             ...prev,
             error: "Please select an AI provider in settings",
@@ -192,7 +156,7 @@ export const useCompletion = () => {
         const provider = allAiProviders.find(
           (p) => p.id === selectedAIProvider.provider
         );
-        if (!provider && !usePluelyAPI) {
+        if (!provider) {
           setState((prev) => ({
             ...prev,
             error: "Invalid provider selected",
@@ -211,7 +175,7 @@ export const useCompletion = () => {
         try {
           // Use the fetchAIResponse function with signal
           for await (const chunk of fetchAIResponse({
-            provider: usePluelyAPI ? undefined : provider,
+            provider: provider,
             selectedProvider: selectedAIProvider,
             systemPrompt: systemPrompt || undefined,
             history: messageHistory,
@@ -407,7 +371,7 @@ export const useCompletion = () => {
         state.conversationHistory.length === 0
           ? generateConversationTitle(userMessage)
           : existingConversation?.title ||
-            generateConversationTitle(userMessage);
+          generateConversationTitle(userMessage);
 
       const conversation: ChatConversation = {
         id: conversationId,
@@ -487,10 +451,13 @@ export const useCompletion = () => {
       }
     };
 
-    const handleStorageChange = async (e: StorageEvent) => {
-      if (e.key === "pluely-conversation-selected" && e.newValue) {
+    // --- Tauri push-based cross-window sync (replaces window.addEventListener("storage")) ---
+    const unlistenTauri = listen<string>("data-updated", async (event) => {
+      if (event.payload === "app-conversation-selected") {
         try {
-          const data = JSON.parse(e.newValue);
+          const raw = localStorage.getItem("app-conversation-selected");
+          if (!raw) return;
+          const data = JSON.parse(raw);
           const { id } = data;
           if (id && typeof id === "string") {
             const conversation = await getConversationById(id);
@@ -502,12 +469,11 @@ export const useCompletion = () => {
           console.error("Failed to parse conversation selection:", error);
         }
       }
-    };
+    });
 
     window.addEventListener("conversationSelected", handleConversationSelected);
     window.addEventListener("newConversation", handleNewConversation);
     window.addEventListener("conversationDeleted", handleConversationDeleted);
-    window.addEventListener("storage", handleStorageChange);
 
     return () => {
       window.removeEventListener(
@@ -519,7 +485,7 @@ export const useCompletion = () => {
         "conversationDeleted",
         handleConversationDeleted
       );
-      window.removeEventListener("storage", handleStorageChange);
+      unlistenTauri.then((fn) => fn());
     };
   }, [loadConversation, startNewConversation, state.currentConversationId]);
 
@@ -582,9 +548,8 @@ export const useCompletion = () => {
 
             let fullResponse = "";
 
-            const usePluelyAPI = await shouldUsePluelyAPI();
             // Check if AI provider is configured
-            if (!selectedAIProvider.provider && !usePluelyAPI) {
+            if (!selectedAIProvider.provider) {
               setState((prev) => ({
                 ...prev,
                 error: "Please select an AI provider in settings",
@@ -595,7 +560,7 @@ export const useCompletion = () => {
             const provider = allAiProviders.find(
               (p) => p.id === selectedAIProvider.provider
             );
-            if (!provider && !usePluelyAPI) {
+            if (!provider) {
               setState((prev) => ({
                 ...prev,
                 error: "Invalid provider selected",
@@ -614,7 +579,7 @@ export const useCompletion = () => {
 
             // Use the fetchAIResponse function with image and signal
             for await (const chunk of fetchAIResponse({
-              provider: usePluelyAPI ? undefined : provider,
+              provider: provider,
               selectedProvider: selectedAIProvider,
               systemPrompt: systemPrompt || undefined,
               history: messageHistory,
@@ -778,12 +743,10 @@ export const useCompletion = () => {
 
   // Auto scroll to bottom when response updates
   useEffect(() => {
-    const responseSettings = getResponseSettings();
     if (
       !keepEngaged &&
       state.response &&
-      scrollAreaRef.current &&
-      responseSettings.autoScroll
+      scrollAreaRef.current
     ) {
       const scrollElement = scrollAreaRef.current.querySelector(
         "[data-radix-scroll-area-viewport]"
@@ -876,7 +839,7 @@ export const useCompletion = () => {
             setState((prev) => ({
               ...prev,
               error:
-                "Screen Recording permission required. Please enable it by going to System Settings > Privacy & Security > Screen & System Audio Recording. If you don't see Pluely in the list, click the '+' button to add it. If it's already listed, make sure it's enabled. Then restart the app.",
+                "Screen Recording permission required. Please enable it by going to System Settings > Privacy & Security > Screen & System Audio Recording. If you don't see the app in the list, click the '+' button to add it. If it's already listed, make sure it's enabled. Then restart the app.",
             }));
             setIsScreenshotLoading(false);
             screenshotInitiatedByThisContext.current = false;

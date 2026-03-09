@@ -205,6 +205,18 @@ export function StepEditorSidebar({
                                     className="h-20"
                                 />
                             </div>
+                            <div className="space-y-2">
+                                <Label>Output Rules</Label>
+                                <Textarea
+                                    value={(step.config as AIStepConfig).outputRules || ''}
+                                    onChange={(e) => onUpdate({ outputRules: e.target.value })}
+                                    placeholder="e.g. Answer only. No explanation. Max 1 sentence."
+                                    className="h-16"
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Constrain how the AI formats its response. These rules are appended to the system prompt.
+                                </p>
+                            </div>
                         </>
                     )}
 

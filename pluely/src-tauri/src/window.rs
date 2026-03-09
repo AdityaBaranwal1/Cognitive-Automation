@@ -164,10 +164,13 @@ pub fn move_window(app: tauri::AppHandle, direction: String, step: i32) -> Resul
 }
 
 #[tauri::command]
-pub fn set_content_protection(window: tauri::WebviewWindow, enabled: bool) -> Result<(), String> {
-    window
-        .set_content_protected(enabled)
-        .map_err(|e| format!("Failed to set content protection: {}", e))?;
+pub fn set_content_protection(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    // Apply content protection to ALL windows (main overlay + dashboard)
+    for (label, window) in app.webview_windows() {
+        if let Err(e) = window.set_content_protected(enabled) {
+            eprintln!("Failed to set content protection on '{}': {}", label, e);
+        }
+    }
     Ok(())
 }
 

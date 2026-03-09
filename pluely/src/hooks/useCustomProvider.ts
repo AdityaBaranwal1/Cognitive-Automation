@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { TYPE_PROVIDER } from "@/types";
 import { AI_PROVIDERS } from "@/config";
-import { useApp } from "@/contexts";
+import { useConfig } from "@/contexts";
 import {
   getCustomAiProviders,
   addCustomAiProvider,
@@ -11,7 +11,7 @@ import {
 } from "@/lib";
 
 export function useCustomAiProviders() {
-  const { loadData } = useApp();
+  const { loadData } = useConfig();
   const [showForm, setShowForm] = useState(false);
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [formData, setFormData] = useState<TYPE_PROVIDER>({

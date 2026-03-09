@@ -6,7 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components";
-import { useApp } from "@/contexts";
+import { useConfig } from "@/contexts";
 import { getPlatform } from "@/lib";
 import { CursorType } from "@/lib/storage";
 import { MousePointer, MousePointer2, Pointer, TextCursor } from "lucide-react";
@@ -16,7 +16,7 @@ interface CursorSelectionProps {
 }
 
 export const CursorSelection = ({ className }: CursorSelectionProps) => {
-  const { customizable, setCursorType } = useApp();
+  const { customizable, setCursorType } = useConfig();
   const platform = getPlatform();
 
   return (

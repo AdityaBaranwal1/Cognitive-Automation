@@ -1,12 +1,12 @@
 import { Switch, Label, Header } from "@/components";
-import { useApp } from "@/contexts";
+import { useConfig } from "@/contexts";
 
 interface AutostartToggleProps {
   className?: string;
 }
 
 export const AutostartToggle = ({ className }: AutostartToggleProps) => {
-  const { customizable, toggleAutostart } = useApp();
+  const { customizable, toggleAutostart } = useConfig();
 
   const isEnabled = customizable?.autostart?.isEnabled ?? true;
 

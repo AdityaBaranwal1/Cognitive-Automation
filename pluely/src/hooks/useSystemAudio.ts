@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useWindowResize, useGlobalShortcuts } from ".";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useApp } from "@/contexts";
+import { useConfig, useAudio } from "@/contexts";
 import { fetchSTT, fetchAIResponse } from "@/lib/functions";
 import {
   DEFAULT_QUICK_ACTIONS,
@@ -11,14 +11,13 @@ import {
 } from "@/config";
 import {
   safeLocalStorage,
-  shouldUsePluelyAPI,
   generateConversationTitle,
   saveConversation,
   CONVERSATION_SAVE_DEBOUNCE_MS,
   generateConversationId,
   generateMessageId,
 } from "@/lib";
-import { Message } from "@/types/completion";
+import { Message, ChatConversation } from "@/types/completion";
 
 // VAD Configuration interface matching Rust
 export interface VadConfig {
@@ -46,22 +45,7 @@ const DEFAULT_VAD_CONFIG: VadConfig = {
   max_recording_duration_secs: 180, // 3 minutes default
 };
 
-// Chat message interface (reusing from useCompletion)
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  timestamp: number;
-}
 
-// Conversation interface (reusing from useCompletion)
-export interface ChatConversation {
-  id: string;
-  title: string;
-  messages: ChatMessage[];
-  createdAt: number;
-  updatedAt: number;
-}
 
 export type useSystemAudioType = ReturnType<typeof useSystemAudio>;
 
@@ -106,8 +90,8 @@ export function useSystemAudio() {
     selectedAIProvider,
     allAiProviders,
     systemPrompt,
-    selectedAudioDevices,
-  } = useApp();
+  } = useConfig();
+  const { selectedAudioDevices } = useAudio();
   const abortControllerRef = useRef<AbortController | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isSavingRef = useRef<boolean>(false);
@@ -237,8 +221,7 @@ export function useSystemAudio() {
             }
             const audioBlob = new Blob([bytes], { type: "audio/wav" });
 
-            const usePluelyAPI = await shouldUsePluelyAPI();
-            if (!selectedSttProvider.provider && !usePluelyAPI) {
+            if (!selectedSttProvider.provider) {
               setError("No speech provider selected.");
               return;
             }
@@ -247,7 +230,7 @@ export function useSystemAudio() {
               (p) => p.id === selectedSttProvider.provider
             );
 
-            if (!providerConfig && !usePluelyAPI) {
+            if (!providerConfig) {
               setError("Speech provider config not found.");
               return;
             }
@@ -464,8 +447,7 @@ export function useSystemAudio() {
 
         let fullResponse = "";
 
-        const usePluelyAPI = await shouldUsePluelyAPI();
-        if (!selectedAIProvider.provider && !usePluelyAPI) {
+        if (!selectedAIProvider.provider) {
           setError("No AI provider selected.");
           return;
         }
@@ -473,14 +455,14 @@ export function useSystemAudio() {
         const provider = allAiProviders.find(
           (p) => p.id === selectedAIProvider.provider
         );
-        if (!provider && !usePluelyAPI) {
+        if (!provider) {
           setError("AI provider config not found.");
           return;
         }
 
         try {
           for await (const chunk of fetchAIResponse({
-            provider: usePluelyAPI ? undefined : provider,
+            provider: provider,
             selectedProvider: selectedAIProvider,
             systemPrompt: prompt,
             history: previousMessages,
@@ -720,7 +702,7 @@ export function useSystemAudio() {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
-      invoke("stop_system_audio_capture").catch(() => {});
+      invoke("stop_system_audio_capture").catch(() => { });
     };
   }, []);
 

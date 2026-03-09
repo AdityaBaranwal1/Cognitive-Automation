@@ -1,65 +1,35 @@
-import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { GetLicense } from "@/components";
-import { PluelyApiSetup, Usage } from "./components";
 import { PageLayout } from "@/layouts";
-import { useApp } from "@/contexts";
+import { Usage } from "./components";
+import { getUsageSummary, clearApiUsage } from "@/lib/storage/api-usage.storage";
+import { useState, useCallback } from "react";
 
 const Dashboard = () => {
-  const { hasActiveLicense } = useApp();
-  const [activity, setActivity] = useState<any>(null);
-  const [loadingActivity, setLoadingActivity] = useState(false);
+  const [summary, setSummary] = useState(() => getUsageSummary(30));
+  const [loading, setLoading] = useState(false);
 
-  const fetchActivity = useCallback(async () => {
-    if (!hasActiveLicense) {
-      setActivity({ data: [], total_tokens_used: 0 });
-      return;
-    }
-    setLoadingActivity(true);
-    try {
-      const response = await invoke("get_activity");
-      const responseData: any = response;
-      if (responseData && responseData.success) {
-        setActivity(responseData);
-      } else {
-        setActivity({ data: [], total_tokens_used: 0 });
-      }
-    } catch (error) {
-      setActivity({ data: [], total_tokens_used: 0 });
-    } finally {
-      setLoadingActivity(false);
-    }
-  }, [hasActiveLicense]);
+  const handleRefresh = useCallback(() => {
+    setLoading(true);
+    setTimeout(() => {
+      setSummary(getUsageSummary(30));
+      setLoading(false);
+    }, 300);
+  }, []);
 
-  useEffect(() => {
-    if (hasActiveLicense) {
-      fetchActivity();
-    } else {
-      setActivity(null);
-    }
-  }, [fetchActivity, hasActiveLicense]);
-
-  const activityData =
-    activity && Array.isArray(activity.data) ? activity.data : [];
-  const totalTokens =
-    activity && typeof activity.total_tokens_used === "number"
-      ? activity.total_tokens_used
-      : 0;
+  const handleClear = useCallback(() => {
+    clearApiUsage();
+    setSummary(getUsageSummary(30));
+  }, []);
 
   return (
     <PageLayout
       title="Dashboard"
-      description="Pluely license to unlock faster responses, quicker support and premium features."
-      rightSlot={!hasActiveLicense ? <GetLicense /> : null}
+      description="Overview of your local API activity and usage"
     >
-      {/* Pluely API Setup */}
-      <PluelyApiSetup />
-
       <Usage
-        loading={!hasActiveLicense || loadingActivity}
-        onRefresh={fetchActivity}
-        data={activityData}
-        totalTokens={totalTokens}
+        loading={loading}
+        onRefresh={handleRefresh}
+        onClear={handleClear}
+        summary={summary}
       />
     </PageLayout>
   );

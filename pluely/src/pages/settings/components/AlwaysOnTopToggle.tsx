@@ -1,12 +1,12 @@
 import { Switch, Label, Header } from "@/components";
-import { useApp } from "@/contexts";
+import { useConfig } from "@/contexts";
 
 interface AlwaysOnTopToggleProps {
   className?: string;
 }
 
 export const AlwaysOnTopToggle = ({ className }: AlwaysOnTopToggleProps) => {
-  const { customizable, toggleAlwaysOnTop } = useApp();
+  const { customizable, toggleAlwaysOnTop } = useConfig();
 
   const handleSwitchChange = async (checked: boolean) => {
     await toggleAlwaysOnTop(checked);
@@ -37,12 +37,10 @@ export const AlwaysOnTopToggle = ({ className }: AlwaysOnTopToggleProps) => {
         <Switch
           checked={customizable.alwaysOnTop.isEnabled}
           onCheckedChange={handleSwitchChange}
-          title={`Toggle to ${
-            !customizable.alwaysOnTop.isEnabled ? "Enabled" : "Disabled"
-          } always on top`}
-          aria-label={`Toggle to ${
-            customizable.alwaysOnTop.isEnabled ? "Enabled" : "Disabled"
-          } always on top`}
+          title={`Toggle to ${!customizable.alwaysOnTop.isEnabled ? "Enabled" : "Disabled"
+            } always on top`}
+          aria-label={`Toggle to ${customizable.alwaysOnTop.isEnabled ? "Enabled" : "Disabled"
+            } always on top`}
         />
       </div>
     </div>

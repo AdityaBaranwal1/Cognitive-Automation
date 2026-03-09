@@ -15,7 +15,7 @@ export interface BaseStepConfig {
 }
 
 export interface CaptureStepConfig extends BaseStepConfig {
-    mode: "fullscreen" | "window" | "area";
+    mode: "fullscreen" | "window" | "area" | "fixed";
 }
 
 export type AIProviderType = "lm-studio" | "openai" | "anthropic" | "custom";
@@ -26,6 +26,7 @@ export interface AIStepConfig extends BaseStepConfig {
     prompt: string;     // The user prompt
     systemPromptId?: string; // Reference to system prompt
     profileId?: string; // Reference to model profile (context/vision settings)
+    outputRules?: string; // Per-step output constraints (e.g., "Answer only. No explanation.")
     temperature?: number;
     maxTokens?: number;
     // Phase 3: Image stitching settings
@@ -75,11 +76,17 @@ export interface AwaitInputStepConfig extends BaseStepConfig {
     keymap: AwaitInputKeyAction[];  // Array of key->action mappings
 }
 
+// Action notification step configuration
+export interface ActionNotificationConfig extends BaseStepConfig {
+    title: string;
+    message?: string;
+}
+
 export interface WorkflowStep {
     id: string;
     type: StepType;
-    name: string;
-    config: CaptureStepConfig | AIStepConfig | SystemActionConfig | DelayStepConfig | KeypressStepConfig | WaitStepConfig | LoopStepConfig | AwaitInputStepConfig;
+    name?: string;
+    config: CaptureStepConfig | AIStepConfig | SystemActionConfig | DelayStepConfig | KeypressStepConfig | WaitStepConfig | LoopStepConfig | AwaitInputStepConfig | ActionNotificationConfig;
 }
 
 export interface Workflow {
@@ -90,4 +97,18 @@ export interface Workflow {
     steps: WorkflowStep[];
     createdAt: number;
     updatedAt: number;
+}
+
+// Workflow execution tracking (for progress indicators)
+export type WorkflowExecutionStatus = "idle" | "running" | "ai_thinking" | "capturing" | "waiting" | "completed" | "error";
+
+export interface WorkflowExecution {
+    workflowId: string;
+    workflowName: string;
+    activeStepId: string | null;
+    activeStepType: StepType | null;
+    activeStepIndex: number;
+    totalSteps: number;
+    status: WorkflowExecutionStatus;
+    error?: string;
 }

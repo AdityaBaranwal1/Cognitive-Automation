@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import Overlay from "./components/Overlay";
-import { AppProvider, ThemeProvider } from "./contexts";
+import { ConfigProvider, AudioProvider, WorkflowProvider, ThemeProvider } from "./contexts";
 import "./global.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import AppRoutes from "./routes";
@@ -22,9 +22,13 @@ if (windowLabel.startsWith("capture-overlay-")) {
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <ThemeProvider>
-        <AppProvider>
-          <AppRoutes />
-        </AppProvider>
+        <ConfigProvider>
+          <AudioProvider>
+            <WorkflowProvider>
+              <AppRoutes />
+            </WorkflowProvider>
+          </AudioProvider>
+        </ConfigProvider>
       </ThemeProvider>
     </React.StrictMode>
   );

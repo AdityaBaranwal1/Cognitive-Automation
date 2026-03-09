@@ -1,6 +1,6 @@
 import { InfoIcon, MicIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger, Button } from "@/components";
-import { useApp } from "@/contexts";
+import { useConfig } from "@/contexts";
 
 interface ChatAudioProps {
   micOpen: boolean;
@@ -17,8 +17,8 @@ export const ChatAudio = ({
   setIsRecording,
   disabled,
 }: ChatAudioProps) => {
-  const { selectedSttProvider, pluelyApiEnabled } = useApp();
-  const isProviderConfigured = pluelyApiEnabled || selectedSttProvider.provider;
+  const { selectedSttProvider } = useConfig();
+  const isProviderConfigured = !!selectedSttProvider.provider;
 
   const handleMicClick = () => {
     if (!isProviderConfigured) {
@@ -41,9 +41,8 @@ export const ChatAudio = ({
           disabled={disabled}
         >
           <MicIcon
-            className={`size-3 lg:size-4 ${
-              isRecording ? "text-red-500 animate-pulse" : ""
-            }`}
+            className={`size-3 lg:size-4 ${isRecording ? "text-red-500 animate-pulse" : ""
+              }`}
           />
         </Button>
       </PopoverTrigger>

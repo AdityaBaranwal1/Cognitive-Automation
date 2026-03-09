@@ -1,14 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
 import { MousePointer2 } from "lucide-react";
-
-interface SelectionCoords {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
 
 interface OverlayProps {
   monitorIndex: number;
