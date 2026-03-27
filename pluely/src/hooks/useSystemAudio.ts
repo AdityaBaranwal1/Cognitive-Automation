@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useConfig, useAudio } from "@/contexts";
 import { fetchSTT, fetchAIResponse } from "@/lib/functions";
+import { injectKeychainKey, resolveFromSavedConfig } from "@/lib/functions/provider-resolver.function";
 import {
   DEFAULT_QUICK_ACTIONS,
   DEFAULT_SYSTEM_PROMPT,
@@ -452,18 +453,32 @@ export function useSystemAudio() {
           return;
         }
 
-        const provider = allAiProviders.find(
-          (p) => p.id === selectedAIProvider.provider
-        );
-        if (!provider) {
-          setError("AI provider config not found.");
-          return;
+        // Resolve provider: try SavedProviderConfig first, then legacy
+        const audioSaved = await resolveFromSavedConfig(selectedAIProvider.provider);
+        let audioProvider: typeof allAiProviders[0];
+        let audioVars: Record<string, string>;
+
+        if (audioSaved) {
+          audioProvider = audioSaved.provider;
+          audioVars = audioSaved.selectedProvider.variables;
+        } else {
+          const legacyAudioProvider = allAiProviders.find(
+            (p) => p.id === selectedAIProvider.provider
+          );
+          if (!legacyAudioProvider) {
+            setError("AI provider config not found.");
+            return;
+          }
+          audioProvider = legacyAudioProvider;
+          audioVars = await injectKeychainKey(selectedAIProvider.provider, selectedAIProvider.variables);
         }
+        const audioResolvedProvider = { ...selectedAIProvider, variables: audioVars };
 
         try {
+
           for await (const chunk of fetchAIResponse({
-            provider: provider,
-            selectedProvider: selectedAIProvider,
+            provider: audioProvider,
+            selectedProvider: audioResolvedProvider,
             systemPrompt: prompt,
             history: previousMessages,
             userMessage: transcription,

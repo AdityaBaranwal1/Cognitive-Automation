@@ -34,6 +34,20 @@ import {
 } from ".";
 import { ArrowRightIcon } from "lucide-react";
 import { saveConversation, generateMessageId } from "@/lib";
+import { getSavedProviderById } from "@/lib/storage/saved-providers.storage";
+import { PROVIDER_PRESETS } from "@/config/provider-presets.constants";
+
+function resolveProviderDisplayName(providerId?: string): string {
+  if (!providerId) return "Unknown";
+  const saved = getSavedProviderById(providerId);
+  if (saved) {
+    const preset = PROVIDER_PRESETS[saved.presetId];
+    return preset?.name || saved.name;
+  }
+  const preset = PROVIDER_PRESETS[providerId];
+  if (preset) return preset.name;
+  return providerId;
+}
 
 const View = () => {
   const { conversationId } = useParams();
@@ -82,7 +96,7 @@ const View = () => {
   };
 
   // Handle model switch - creates visual divider and updates conversation
-  const handleModelSwitch = async (newProviderId: string, newModel: string) => {
+  const handleModelSwitch = async (newProviderId: string, newModel: string, newProfileId?: string) => {
     if (!messages || !conversationId) return;
 
     const currentProviderId = messages.providerId;
@@ -90,6 +104,12 @@ const View = () => {
 
     // Don't switch if same model
     if (currentProviderId === newProviderId && currentModel === newModel) return;
+
+    // Generate checkpoint summary for token optimization
+    const nonSwitchMessages = messages.messages.filter((m) => m.metadata?.type !== "model_switch");
+    const checkpointContent = nonSwitchMessages.length > 4
+      ? `[Context checkpoint - ${nonSwitchMessages.length} previous messages about: ${messages.title}]`
+      : "";
 
     // Create model switch message with metadata
     const timestamp = Date.now();
@@ -104,6 +124,8 @@ const View = () => {
         fromModel: currentModel,
         toProvider: newProviderId,
         toModel: newModel,
+        profileId: newProfileId,
+        checkpoint: checkpointContent || undefined,
       },
     };
 
@@ -229,12 +251,12 @@ const View = () => {
                     <div className="flex-1 h-px bg-border" />
                     <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-muted/50 border border-border text-xs text-muted-foreground">
                       <span className="font-medium">
-                        {message.metadata?.fromProvider || "Unknown"}
+                        {resolveProviderDisplayName(message.metadata?.fromProvider)}
                         {message.metadata?.fromModel && ` / ${message.metadata.fromModel}`}
                       </span>
                       <ArrowRightIcon className="size-3" />
                       <span className="font-medium text-primary">
-                        {message.metadata?.toProvider || "Unknown"}
+                        {resolveProviderDisplayName(message.metadata?.toProvider)}
                         {message.metadata?.toModel && ` / ${message.metadata.toModel}`}
                       </span>
                     </div>

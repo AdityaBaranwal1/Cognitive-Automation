@@ -3,6 +3,21 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
+/// Serializes all persistent data writes to prevent concurrent file access races.
+/// Without this, rapid IPC calls from React useEffect hooks race on the same
+/// temp file, causing "os error 2" (file not found) and "os error 5" (access denied).
+pub struct PersistentState {
+    pub write_lock: tokio::sync::Mutex<()>,
+}
+
+impl Default for PersistentState {
+    fn default() -> Self {
+        Self {
+            write_lock: tokio::sync::Mutex::new(()),
+        }
+    }
+}
+
 /// Get the persistent data file path in the app's data directory.
 fn get_data_file_path(app: &AppHandle) -> Result<PathBuf, String> {
     let data_dir = app
@@ -10,7 +25,6 @@ fn get_data_file_path(app: &AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
 
-    // Ensure the directory exists
     fs::create_dir_all(&data_dir)
         .map_err(|e| format!("Failed to create data dir: {}", e))?;
 
@@ -19,18 +33,18 @@ fn get_data_file_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 /// Save a key-value pair to persistent storage and notify all windows.
 ///
-/// This is the "Single Source of Truth" for cross-window synchronization.
-/// Instead of relying on browser `StorageEvent` (which has TOCTOU races),
-/// the Rust backend serializes all writes and pushes updates to both windows.
+/// Serialized via Mutex — concurrent calls queue instead of racing on the file.
 #[tauri::command]
 pub async fn save_persistent_data(
     app: AppHandle,
     key: String,
     data: String,
 ) -> Result<(), String> {
+    let state = app.state::<PersistentState>();
+    let _guard = state.write_lock.lock().await;
+
     let path = get_data_file_path(&app)?;
 
-    // Load existing data (or start fresh)
     let mut map = if path.exists() {
         let content = fs::read_to_string(&path)
             .map_err(|e| format!("Failed to read persistent data: {}", e))?;
@@ -39,11 +53,9 @@ pub async fn save_persistent_data(
         serde_json::Map::new()
     };
 
-    // Parse the incoming data as a JSON value (or store as string)
     let value: Value = serde_json::from_str(&data).unwrap_or(Value::String(data.clone()));
     map.insert(key.clone(), value);
 
-    // Write atomically: write to temp file, then rename
     let tmp_path = path.with_extension("json.tmp");
     let serialized = serde_json::to_string_pretty(&Value::Object(map))
         .map_err(|e| format!("Failed to serialize data: {}", e))?;

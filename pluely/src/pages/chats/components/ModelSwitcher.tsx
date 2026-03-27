@@ -17,6 +17,8 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import curl2Json from "@bany/curl-to-json";
 import { getProfiles } from "@/lib/storage/model-profiles.storage";
 import { getSuggestedProfileForModel } from "@/config";
+import { getApiKey } from "@/lib/keychain";
+import { getSavedProviderById } from "@/lib/storage/saved-providers.storage";
 
 interface ModelSwitcherProps {
     currentProviderId?: string;
@@ -104,8 +106,21 @@ export const ModelSwitcher = ({
                     baseUrl = `${urlObj.protocol}//${urlObj.host}/v1`;
                 }
 
-                // Extract API Key
+                // Extract API Key from variables first
                 apiKey = provider.variables?.API_KEY || provider.variables?.api_key || "";
+
+                // Keychain fallback for SavedProviderConfig-based providers
+                if (!apiKey) {
+                    const keychainKey = await getApiKey(providerId);
+                    if (keychainKey) apiKey = keychainKey;
+                }
+                if (!apiKey) {
+                    const savedConfig = getSavedProviderById(providerId);
+                    if (savedConfig) {
+                        const presetKey = await getApiKey(savedConfig.presetId);
+                        if (presetKey) apiKey = presetKey;
+                    }
+                }
 
                 if (!apiKey && curlJson.header) {
                     const authHeader = curlJson.header["Authorization"];

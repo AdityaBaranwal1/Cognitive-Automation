@@ -19,6 +19,8 @@ export interface ChatMessage {
     toModel?: string;
     fromProvider?: string;
     toProvider?: string;
+    profileId?: string;
+    checkpoint?: string;
   };
 }
 

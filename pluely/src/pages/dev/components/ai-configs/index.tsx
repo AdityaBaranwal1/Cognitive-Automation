@@ -1,24 +1,44 @@
 import { Header } from "@/components";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { UseSettingsReturn } from "@/types";
+import { QuickSetup } from "./QuickSetup";
+import { StandardSetup } from "./StandardSetup";
 import { Providers } from "./Providers";
-import { CustomProviders } from "./CustomProvider";
+import { AllProviders } from "./AllProviders";
 
 export const AIProviders = (settings: UseSettingsReturn) => {
   return (
     <div id="ai-providers" className="space-y-3">
       <Header
         title="AI Providers"
-        description="Select your preferred AI service provider to get started."
+        description="Add provider configurations with Quick Setup, or use Advanced for custom cURL endpoints."
         isMainTitle
       />
 
-      {/* Default Provider Selection - Prominent card at top */}
       <div className="rounded-xl border border-primary/30 bg-gradient-to-br from-primary/5 to-transparent p-4">
-        <Providers {...settings} />
+        <Tabs defaultValue="quick">
+          <TabsList className="w-full">
+            <TabsTrigger value="quick">Quick Setup</TabsTrigger>
+            <TabsTrigger value="standard">Select Provider</TabsTrigger>
+            <TabsTrigger value="advanced">Advanced (cURL)</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="quick" className="pt-4">
+            <QuickSetup {...settings} />
+          </TabsContent>
+
+          <TabsContent value="standard" className="pt-4">
+            <StandardSetup {...settings} />
+          </TabsContent>
+
+          <TabsContent value="advanced" className="pt-4">
+            <Providers {...settings} />
+          </TabsContent>
+        </Tabs>
       </div>
 
-      {/* Custom Providers - Configuration section below */}
-      <CustomProviders {...settings} />
+      {/* All saved provider configurations */}
+      <AllProviders />
     </div>
   );
 };

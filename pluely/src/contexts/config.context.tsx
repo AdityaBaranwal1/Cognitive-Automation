@@ -5,6 +5,11 @@ import {
     STORAGE_KEYS,
 } from "@/config";
 import { getPlatform, safeLocalStorage } from "@/lib";
+import { migrateKeysToKeychain } from "@/lib/keychain/migration.service";
+import { PROVIDER_PRESETS } from "@/config/provider-presets.constants";
+import { presetToProvider } from "@/lib/functions/preset-to-curl.function";
+import { getSavedProviders } from "@/lib/storage/saved-providers.storage";
+import type { SavedProviderConfig } from "@/types/provider-preset.type";
 
 import {
     getCustomizableState,
@@ -28,8 +33,9 @@ import {
     createContext,
     useContext,
     useEffect,
+    useMemo,
+    useRef,
     useState,
-
 } from "react";
 
 const validateAndProcessCurlProviders = (
@@ -93,6 +99,9 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
         Record<string, Record<string, string>>
     >({});
 
+    // Saved Provider Configurations (named configs with keys in keychain)
+    const [savedProviders, setSavedProviders] = useState<SavedProviderConfig[]>([]);
+
     // STT Providers
     const [customSttProviders, setCustomSttProviders] = useState<TYPE_PROVIDER[]>(
         []
@@ -116,6 +125,14 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
     const [customizable, setCustomizable] = useState<CustomizableState>(
         DEFAULT_CUSTOMIZABLE_STATE
     );
+
+    // Mount-skip refs: prevent sync effects from firing on initial load
+    const isInitialMountAI = useRef(true);
+    const isInitialMountSTT = useRef(true);
+    const isInitialMountConfigs = useRef(true);
+
+    // Self-echo guard: skip data-updated events for keys this window just wrote
+    const recentlyWrittenKeys = useRef<Set<string>>(new Set());
 
     // Function to load AI, STT, system prompt and screenshot config data from storage
     const loadData = () => {
@@ -194,6 +211,9 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
             }
         }
 
+        // Load saved provider configurations
+        setSavedProviders(getSavedProviders());
+
         // Load customizable state
         const customizableState = getCustomizableState();
         setCustomizable(customizableState);
@@ -260,6 +280,24 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
 
         // Load data
         loadData();
+
+        // Migrate plaintext API keys to OS keychain (runs once)
+        const savedConfigs = safeLocalStorage.getItem(STORAGE_KEYS.PROVIDER_CONFIGS);
+        if (savedConfigs) {
+            try {
+                const configs = JSON.parse(savedConfigs);
+                (async () => {
+                    const { migrated, cleanedConfigs } = await migrateKeysToKeychain(configs);
+                    if (migrated) {
+                        setProviderConfigs(cleanedConfigs);
+                        safeLocalStorage.setItem(
+                            STORAGE_KEYS.PROVIDER_CONFIGS,
+                            JSON.stringify(cleanedConfigs)
+                        );
+                    }
+                })();
+            } catch { /* ignore parse errors */ }
+        }
 
         // Apply stealth mode (content protection) on startup for ALL windows
         const stealthSaved = safeLocalStorage.getItem("stealth_mode_enabled");
@@ -353,6 +391,8 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => {
         const unlisten = listen<string>("data-updated", (event) => {
             const key = event.payload;
+            // Skip self-echo: ignore events for keys this window just wrote
+            if (recentlyWrittenKeys.current.has(key)) return;
             if (
                 key === STORAGE_KEYS.CUSTOM_AI_PROVIDERS ||
                 key === STORAGE_KEYS.SELECTED_AI_PROVIDER ||
@@ -361,7 +401,8 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
                 key === STORAGE_KEYS.SYSTEM_PROMPT ||
                 key === STORAGE_KEYS.SCREENSHOT_CONFIG ||
                 key === STORAGE_KEYS.CUSTOMIZABLE ||
-                key === STORAGE_KEYS.PROVIDER_CONFIGS
+                key === STORAGE_KEYS.PROVIDER_CONFIGS ||
+                key === "saved_provider_configs"
             ) {
                 loadData();
             }
@@ -373,50 +414,77 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
 
     // Sync selected AI to localStorage + cross-window push
     useEffect(() => {
+        if (isInitialMountAI.current) { isInitialMountAI.current = false; return; }
         if (selectedAIProvider.provider) {
             const data = JSON.stringify(selectedAIProvider);
             safeLocalStorage.setItem(STORAGE_KEYS.SELECTED_AI_PROVIDER, data);
+            recentlyWrittenKeys.current.add(STORAGE_KEYS.SELECTED_AI_PROVIDER);
             invoke("save_persistent_data", { key: STORAGE_KEYS.SELECTED_AI_PROVIDER, data }).catch(console.error);
+            setTimeout(() => recentlyWrittenKeys.current.delete(STORAGE_KEYS.SELECTED_AI_PROVIDER), 500);
         }
     }, [selectedAIProvider]);
 
     // Sync selected STT to localStorage + cross-window push
     useEffect(() => {
+        if (isInitialMountSTT.current) { isInitialMountSTT.current = false; return; }
         if (selectedSttProvider.provider) {
             const data = JSON.stringify(selectedSttProvider);
             safeLocalStorage.setItem(STORAGE_KEYS.SELECTED_STT_PROVIDER, data);
+            recentlyWrittenKeys.current.add(STORAGE_KEYS.SELECTED_STT_PROVIDER);
             invoke("save_persistent_data", { key: STORAGE_KEYS.SELECTED_STT_PROVIDER, data }).catch(console.error);
+            setTimeout(() => recentlyWrittenKeys.current.delete(STORAGE_KEYS.SELECTED_STT_PROVIDER), 500);
         }
     }, [selectedSttProvider]);
 
     // Sync provider configs to localStorage + cross-window push
     useEffect(() => {
+        if (isInitialMountConfigs.current) { isInitialMountConfigs.current = false; return; }
         const data = JSON.stringify(providerConfigs);
         safeLocalStorage.setItem(STORAGE_KEYS.PROVIDER_CONFIGS, data);
+        recentlyWrittenKeys.current.add(STORAGE_KEYS.PROVIDER_CONFIGS);
         invoke("save_persistent_data", { key: STORAGE_KEYS.PROVIDER_CONFIGS, data }).catch(console.error);
+        setTimeout(() => recentlyWrittenKeys.current.delete(STORAGE_KEYS.PROVIDER_CONFIGS), 500);
     }, [providerConfigs]);
 
-    // Computed all AI providers
-    const allAiProviders: TYPE_PROVIDER[] = [
-        ...AI_PROVIDERS,
-        ...customAiProviders,
-    ].map((provider) => {
-        // Merge saved variables if they exist
-        const savedVars = providerConfigs[provider.id || ""] || {};
-        return {
-            ...provider,
-            variables: {
-                ...(provider.variables || {}),
-                ...savedVars,
-            },
-        };
-    });
+    // Computed all AI providers (memoized to prevent cascading re-renders)
+    // Includes: built-in presets, custom curl providers, AND saved provider configs
+    const allAiProviders = useMemo<TYPE_PROVIDER[]>(() => {
+        // Built-in + custom providers (legacy)
+        const legacyProviders = [
+            ...AI_PROVIDERS,
+            ...customAiProviders,
+        ].map((provider) => {
+            const savedVars = providerConfigs[provider.id || ""] || {};
+            return {
+                ...provider,
+                variables: {
+                    ...(provider.variables || {}),
+                    ...savedVars,
+                },
+            };
+        });
 
-    // Computed all STT providers
-    const allSttProviders: TYPE_PROVIDER[] = [
+        // Saved provider configs → TYPE_PROVIDER entries
+        const savedConfigProviders = savedProviders
+            .map((config) => {
+                const preset = PROVIDER_PRESETS[config.presetId];
+                if (!preset) return null;
+                return presetToProvider(preset, {
+                    model: config.model,
+                    MODEL: config.model,
+                });
+            })
+            .filter((p): p is TYPE_PROVIDER => p !== null)
+            .map((p, i) => ({ ...p, id: savedProviders[i].id, name: savedProviders[i].name }));
+
+        return [...savedConfigProviders, ...legacyProviders];
+    }, [customAiProviders, providerConfigs, savedProviders]);
+
+    // Computed all STT providers (memoized)
+    const allSttProviders = useMemo<TYPE_PROVIDER[]>(() => [
         ...SPEECH_TO_TEXT_PROVIDERS,
         ...customSttProviders,
-    ];
+    ], [customSttProviders]);
 
     const onSetSelectedAIProvider = ({
         provider,
@@ -425,7 +493,14 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
         provider: string;
         variables: Record<string, string>;
     }) => {
-        if (provider && !allAiProviders.some((p) => p.id === provider)) {
+        // Refresh saved providers first — caller may have just added one
+        const freshSaved = getSavedProviders();
+        setSavedProviders(freshSaved);
+
+        // Check both current allAiProviders and freshly-loaded saved configs
+        const knownInLegacy = allAiProviders.some((p) => p.id === provider);
+        const knownInSaved = freshSaved.some((c) => c.id === provider);
+        if (provider && !knownInLegacy && !knownInSaved) {
             console.warn(`Invalid AI provider ID: ${provider}`);
             return;
         }
@@ -436,10 +511,15 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
             variables,
         }));
 
-        // Also update the persistent config store
+        // Strip sensitive keys before persisting to localStorage
+        const safeVars = { ...variables };
+        delete safeVars.API_KEY;
+        delete safeVars.api_key;
+        delete safeVars.apiKey;
+
         setProviderConfigs((prev) => ({
             ...prev,
-            [provider]: variables,
+            [provider]: safeVars,
         }));
     };
 
@@ -465,7 +545,6 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
         setCustomizable(newState);
         try {
             await invoke("set_app_icon_visibility", { visible: isVisible });
-            loadData();
         } catch (error) {
             console.error("Failed to toggle app icon visibility:", error);
         }
@@ -476,7 +555,6 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
         setCustomizable(newState);
         try {
             await invoke("set_always_on_top", { enabled: isEnabled });
-            loadData();
         } catch (error) {
             console.error("Failed to toggle always on top:", error);
         }
@@ -487,7 +565,6 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
         setCustomizable(newState);
         try {
             await invoke("set_always_on_top", { enabled: isEnabled });
-            loadData();
         } catch (error) {
             console.error("Failed to toggle autostart:", error);
             const revertedState = updateAutostart(!isEnabled);
@@ -499,7 +576,6 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
         setCustomizable((prev) => ({ ...prev, cursor: { type } }));
         updateCursor(type);
         updateCursorType(type);
-        loadData();
     };
 
     const value: IConfigContextType = {

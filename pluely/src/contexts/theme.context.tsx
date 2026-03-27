@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { STORAGE_KEYS } from "@/config/";
@@ -41,13 +41,26 @@ export function ThemeProvider({
     return stored ? parseInt(stored, 10) : 10;
   });
 
-  const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-  const isSystemThemeDark = mediaQuery.matches;
+  // Stable mediaQuery ref — created once, not on every render
+  const mediaQueryRef = useRef(window.matchMedia("(prefers-color-scheme: dark)"));
+  const [isSystemThemeDark, setIsSystemThemeDark] = useState(mediaQueryRef.current.matches);
 
-  // --- Tauri push-based cross-window sync (replaces window.addEventListener("storage")) ---
+  // Self-echo guard: skip data-updated events for keys this window just wrote
+  const recentlyWrittenKeys = useRef<Set<string>>(new Set());
+
+  // Track system theme changes
+  useEffect(() => {
+    const mq = mediaQueryRef.current;
+    const handler = (e: MediaQueryListEvent) => setIsSystemThemeDark(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  // --- Tauri push-based cross-window sync ---
   useEffect(() => {
     const unlisten = listen<string>("data-updated", (event) => {
       const key = event.payload;
+      if (recentlyWrittenKeys.current.has(key)) return;
       if (key === STORAGE_KEYS.TRANSPARENCY) {
         const stored = localStorage.getItem(STORAGE_KEYS.TRANSPARENCY);
         if (stored) setTransparency(parseInt(stored, 10));
@@ -62,12 +75,13 @@ export function ThemeProvider({
 
   useEffect(() => {
     const root = window.document.documentElement;
+    const mq = mediaQueryRef.current;
 
     const applyTheme = (currentTheme: Theme) => {
       root.classList.remove("light", "dark");
 
       if (currentTheme === "system") {
-        const systemTheme = mediaQuery.matches ? "dark" : "light";
+        const systemTheme = mq.matches ? "dark" : "light";
         root.classList.add(systemTheme);
       } else {
         root.classList.add(currentTheme);
@@ -83,12 +97,12 @@ export function ThemeProvider({
     applyTheme(theme);
 
     if (theme === "system") {
-      mediaQuery.addEventListener("change", updateTheme);
+      mq.addEventListener("change", updateTheme);
     }
 
     return () => {
       if (theme === "system") {
-        mediaQuery.removeEventListener("change", updateTheme);
+        mq.removeEventListener("change", updateTheme);
       }
     };
   }, [theme]);
@@ -98,10 +112,8 @@ export function ThemeProvider({
     const root = window.document.documentElement;
     const opacity = (100 - transparency) / 100;
 
-    // Apply opacity to CSS variables
     root.style.setProperty("--opacity", opacity.toString());
 
-    // Apply backdrop filter when transparency is active
     if (transparency > 0) {
       root.style.setProperty("--backdrop-blur", "blur(12px)");
     } else {
@@ -109,24 +121,30 @@ export function ThemeProvider({
     }
   }, [transparency]);
 
-  const onSetTransparency = (transparency: number) => {
-    const value = transparency.toString();
-    localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, value);
-    setTransparency(transparency);
-    invoke("save_persistent_data", { key: STORAGE_KEYS.TRANSPARENCY, data: value }).catch(console.error);
-  };
+  const onSetTransparency = useCallback((t: number) => {
+    const val = t.toString();
+    localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, val);
+    setTransparency(t);
+    recentlyWrittenKeys.current.add(STORAGE_KEYS.TRANSPARENCY);
+    invoke("save_persistent_data", { key: STORAGE_KEYS.TRANSPARENCY, data: val }).catch(console.error);
+    setTimeout(() => recentlyWrittenKeys.current.delete(STORAGE_KEYS.TRANSPARENCY), 500);
+  }, []);
 
-  const value = {
+  const handleSetTheme = useCallback((newTheme: Theme) => {
+    localStorage.setItem(storageKey, newTheme);
+    setTheme(newTheme);
+    recentlyWrittenKeys.current.add(storageKey);
+    invoke("save_persistent_data", { key: storageKey, data: newTheme }).catch(console.error);
+    setTimeout(() => recentlyWrittenKeys.current.delete(storageKey), 500);
+  }, [storageKey]);
+
+  const value = useMemo(() => ({
     theme,
-    setTheme: (newTheme: Theme) => {
-      localStorage.setItem(storageKey, newTheme);
-      setTheme(newTheme);
-      invoke("save_persistent_data", { key: storageKey, data: newTheme }).catch(console.error);
-    },
+    setTheme: handleSetTheme,
     isSystemThemeDark,
     transparency,
     onSetTransparency,
-  };
+  }), [theme, handleSetTheme, isSystemThemeDark, transparency, onSetTransparency]);
 
   return (
     <ThemeProviderContext.Provider {...props} value={value}>

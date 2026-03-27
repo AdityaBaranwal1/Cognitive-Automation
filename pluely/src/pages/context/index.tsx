@@ -127,6 +127,13 @@ const Context = () => {
 
                 apiKey = provider.variables?.API_KEY || provider.variables?.api_key || "";
 
+                // Keychain fallback for SavedProviderConfig-based providers
+                if (!apiKey) {
+                    const { getApiKey } = await import("@/lib/keychain");
+                    const keychainKey = await getApiKey(providerId);
+                    if (keychainKey) apiKey = keychainKey;
+                }
+
                 if (!apiKey && curlJson.header) {
                     const authHeader = curlJson.header["Authorization"];
                     if (authHeader && authHeader.includes("Bearer ")) {

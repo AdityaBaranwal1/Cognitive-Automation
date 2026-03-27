@@ -51,9 +51,15 @@ export const useModelTester = () => {
             const curlJson = curl2Json(provider.curl);
             const url = curlJson.url;
 
-            // Get API key from provider variables
-            const apiKey = selectedAIProvider?.variables?.API_KEY ||
+            // Get API key from provider variables, then keychain fallback
+            let apiKey = selectedAIProvider?.variables?.API_KEY ||
                 selectedAIProvider?.variables?.api_key || "";
+
+            if (!apiKey) {
+                const { getApiKey } = await import("@/lib/keychain");
+                const keychainKey = await getApiKey(providerId);
+                if (keychainKey) apiKey = keychainKey;
+            }
 
             // Build headers
             const headers: Record<string, string> = {

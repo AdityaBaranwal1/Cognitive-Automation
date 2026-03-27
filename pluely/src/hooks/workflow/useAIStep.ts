@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { AIStepConfig, Workflow } from "@/types";
 import { TYPE_PROVIDER } from "@/types/provider.type";
 import { getAllSystemPrompts, fetchAIResponse } from "@/lib";
+import { injectKeychainKey, resolveFromSavedConfig } from "@/lib/functions/provider-resolver.function";
 import {
     ExecutionContext,
     FALLBACK_LM_STUDIO_PROVIDER,
@@ -32,12 +33,25 @@ export const executeAIStep = async (
 
     // --- Provider resolution ---
     const providerId = aiConfig.providerId || "lm-studio";
-    let providerConfig = allAiProviders.find(p => p.id === providerId);
-    if (!providerConfig && providerId === "lm-studio") {
-        providerConfig = FALLBACK_LM_STUDIO_PROVIDER;
-    }
-    if (!providerConfig) {
-        throw new Error(`Provider ${providerId} not found.`);
+
+    // Try resolving as a SavedProviderConfig first (UUID-based)
+    const savedResolution = await resolveFromSavedConfig(providerId);
+
+    let providerConfig: TYPE_PROVIDER;
+    let resolvedVars: Record<string, string> | null = null;
+    if (savedResolution) {
+        providerConfig = savedResolution.provider;
+        resolvedVars = savedResolution.selectedProvider.variables;
+    } else {
+        // Fall back to legacy provider lookup
+        const legacy = allAiProviders.find(p => p.id === providerId);
+        if (!legacy && providerId === "lm-studio") {
+            providerConfig = FALLBACK_LM_STUDIO_PROVIDER;
+        } else if (!legacy) {
+            throw new Error(`Provider ${providerId} not found.`);
+        } else {
+            providerConfig = legacy;
+        }
     }
 
     // --- System prompt lookup ---
@@ -87,15 +101,17 @@ export const executeAIStep = async (
 
     // --- Call LLM ---
     let fullResponse = "";
+    // Use pre-resolved vars from SavedProviderConfig, or inject from keychain
+    const aiStepVars = resolvedVars ?? await injectKeychainKey(providerId, {
+        model: aiConfig.model || "qwen/qwen3-vl-8b",
+        api_key: providerConfig.variables?.["api_key"] || providerConfig.variables?.["API_KEY"] || "",
+        ...(providerConfig.variables || {})
+    });
     const generator = fetchAIResponse({
         provider: providerConfig,
         selectedProvider: {
             provider: providerId,
-            variables: {
-                model: aiConfig.model || "qwen/qwen3-vl-8b",
-                api_key: providerConfig.variables?.["api_key"] || providerConfig.variables?.["API_KEY"] || "",
-                ...(providerConfig.variables || {})
-            }
+            variables: aiStepVars
         },
         systemPrompt: systemPromptContent,
         userMessage: userPromptContext,

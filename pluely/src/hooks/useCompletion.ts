@@ -14,6 +14,7 @@ import {
   generateRequestId,
 } from "@/lib";
 import { AttachedFile, ChatMessage, ChatConversation, CompletionState } from "@/types";
+import { injectKeychainKey, resolveFromSavedConfig } from "@/lib/functions/provider-resolver.function";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
@@ -126,11 +127,13 @@ export const useCompletion = () => {
       const signal = abortControllerRef.current.signal;
 
       try {
-        // Prepare message history for the AI
-        const messageHistory = state.conversationHistory.map((msg) => ({
-          role: msg.role,
-          content: msg.content,
-        }));
+        // Prepare message history for the AI — filter out model_switch system messages
+        const messageHistory = state.conversationHistory
+          .filter((msg) => msg.metadata?.type !== "model_switch")
+          .map((msg) => ({
+            role: msg.role,
+            content: msg.content,
+          }));
 
         // Handle image attachments
         const imagesBase64: string[] = [];
@@ -153,16 +156,29 @@ export const useCompletion = () => {
           return;
         }
 
-        const provider = allAiProviders.find(
-          (p) => p.id === selectedAIProvider.provider
-        );
-        if (!provider) {
-          setState((prev) => ({
-            ...prev,
-            error: "Invalid provider selected",
-          }));
-          return;
+        // Resolve provider: try SavedProviderConfig first, then legacy
+        const savedRes1 = await resolveFromSavedConfig(selectedAIProvider.provider);
+        let useProvider: typeof allAiProviders[0];
+        let useVars: Record<string, string>;
+
+        if (savedRes1) {
+          useProvider = savedRes1.provider;
+          useVars = savedRes1.selectedProvider.variables;
+        } else {
+          const legacyProvider = allAiProviders.find(
+            (p) => p.id === selectedAIProvider.provider
+          );
+          if (!legacyProvider) {
+            setState((prev) => ({
+              ...prev,
+              error: "Invalid provider selected",
+            }));
+            return;
+          }
+          useProvider = legacyProvider;
+          useVars = await injectKeychainKey(selectedAIProvider.provider, selectedAIProvider.variables);
         }
+        const resolvedProvider = { ...selectedAIProvider, variables: useVars };
 
         // Clear previous response and set loading state
         setState((prev) => ({
@@ -173,10 +189,11 @@ export const useCompletion = () => {
         }));
 
         try {
+
           // Use the fetchAIResponse function with signal
           for await (const chunk of fetchAIResponse({
-            provider: provider,
-            selectedProvider: selectedAIProvider,
+            provider: useProvider,
+            selectedProvider: resolvedProvider,
             systemPrompt: systemPrompt || undefined,
             history: messageHistory,
             userMessage: input,
@@ -540,11 +557,13 @@ export const useCompletion = () => {
           const signal = abortControllerRef.current.signal;
 
           try {
-            // Prepare message history for the AI
-            const messageHistory = state.conversationHistory.map((msg) => ({
-              role: msg.role,
-              content: msg.content,
-            }));
+            // Prepare message history for the AI — filter out model_switch system messages
+            const messageHistory = state.conversationHistory
+              .filter((msg) => msg.metadata?.type !== "model_switch")
+              .map((msg) => ({
+                role: msg.role,
+                content: msg.content,
+              }));
 
             let fullResponse = "";
 
@@ -557,16 +576,29 @@ export const useCompletion = () => {
               return;
             }
 
-            const provider = allAiProviders.find(
-              (p) => p.id === selectedAIProvider.provider
-            );
-            if (!provider) {
-              setState((prev) => ({
-                ...prev,
-                error: "Invalid provider selected",
-              }));
-              return;
+            // Resolve provider: try SavedProviderConfig first, then legacy
+            const savedRes2 = await resolveFromSavedConfig(selectedAIProvider.provider);
+            let useProvider2: typeof allAiProviders[0];
+            let useVars2: Record<string, string>;
+
+            if (savedRes2) {
+              useProvider2 = savedRes2.provider;
+              useVars2 = savedRes2.selectedProvider.variables;
+            } else {
+              const legacyProvider2 = allAiProviders.find(
+                (p) => p.id === selectedAIProvider.provider
+              );
+              if (!legacyProvider2) {
+                setState((prev) => ({
+                  ...prev,
+                  error: "Invalid provider selected",
+                }));
+                return;
+              }
+              useProvider2 = legacyProvider2;
+              useVars2 = await injectKeychainKey(selectedAIProvider.provider, selectedAIProvider.variables);
             }
+            const resolvedProvider2 = { ...selectedAIProvider, variables: useVars2 };
 
             // Clear previous response and set loading state
             setState((prev) => ({
@@ -579,8 +611,8 @@ export const useCompletion = () => {
 
             // Use the fetchAIResponse function with image and signal
             for await (const chunk of fetchAIResponse({
-              provider: provider,
-              selectedProvider: selectedAIProvider,
+              provider: useProvider2,
+              selectedProvider: resolvedProvider2,
               systemPrompt: systemPrompt || undefined,
               history: messageHistory,
               userMessage: prompt,
@@ -880,48 +912,40 @@ export const useCompletion = () => {
   }, [handleScreenshotSubmit]);
 
   useEffect(() => {
-    let unlisten: any;
+    const unlistenRef = { current: null as (() => void) | null };
 
-    const setupListener = async () => {
-      unlisten = await listen("captured-selection", async (event: any) => {
-        if (!screenshotInitiatedByThisContext.current) {
-          return;
+    listen("captured-selection", async (event: any) => {
+      if (!screenshotInitiatedByThisContext.current) {
+        return;
+      }
+
+      if (isProcessingScreenshotRef.current) {
+        return;
+      }
+
+      isProcessingScreenshotRef.current = true;
+      const base64 = event.payload;
+      const config = screenshotConfigRef.current;
+
+      try {
+        if (config.mode === "auto") {
+          await handleScreenshotSubmit(base64 as string, config.autoPrompt);
+        } else if (config.mode === "manual") {
+          await handleScreenshotSubmit(base64 as string);
         }
-
-        if (isProcessingScreenshotRef.current) {
-          return;
-        }
-
-        isProcessingScreenshotRef.current = true;
-        const base64 = event.payload;
-        const config = screenshotConfigRef.current;
-
-        try {
-          if (config.mode === "auto") {
-            // Auto mode: Submit directly to AI with the configured prompt
-            await handleScreenshotSubmit(base64 as string, config.autoPrompt);
-          } else if (config.mode === "manual") {
-            // Manual mode: Add to attached files without prompt
-            await handleScreenshotSubmit(base64 as string);
-          }
-        } catch (error) {
-          console.error("Error processing selection:", error);
-        } finally {
-          setIsScreenshotLoading(false);
-          screenshotInitiatedByThisContext.current = false;
-          setTimeout(() => {
-            isProcessingScreenshotRef.current = false;
-          }, 100);
-        }
-      });
-    };
-
-    setupListener();
+      } catch (error) {
+        console.error("Error processing selection:", error);
+      } finally {
+        setIsScreenshotLoading(false);
+        screenshotInitiatedByThisContext.current = false;
+        setTimeout(() => {
+          isProcessingScreenshotRef.current = false;
+        }, 100);
+      }
+    }).then((fn) => { unlistenRef.current = fn; });
 
     return () => {
-      if (unlisten) {
-        unlisten();
-      }
+      if (unlistenRef.current) unlistenRef.current();
     };
   }, [handleScreenshotSubmit]);
 

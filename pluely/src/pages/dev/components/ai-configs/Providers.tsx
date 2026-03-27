@@ -1,9 +1,11 @@
 import { Button, Header, Input, Selection, TextInput } from "@/components";
+import { SearchableSelect } from "@/components/SearchableSelect";
 import { UseSettingsReturn } from "@/types";
 import curl2Json, { ResultJSON } from "@bany/curl-to-json";
 import { KeyIcon, TrashIcon, RefreshCwIcon, Loader2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { saveApiKey } from "@/lib/keychain";
 
 export const Providers = ({
   allAiProviders,
@@ -72,8 +74,15 @@ export const Providers = ({
           baseUrl = `${urlObj.protocol}//${urlObj.host}/v1`;
         }
 
-        // Extract API Key
+        // Extract API Key from variables first
         apiKey = provider.variables?.API_KEY || provider.variables?.api_key || "";
+
+        // Keychain fallback for SavedProviderConfig-based providers
+        if (!apiKey) {
+          const { getApiKey } = await import("@/lib/keychain");
+          const keychainKey = await getApiKey(selectedAIProvider.provider);
+          if (keychainKey) apiKey = keychainKey;
+        }
 
         if (!apiKey && curlJson.header) {
           const authHeader = curlJson.header["Authorization"];
@@ -197,6 +206,12 @@ export const Providers = ({
                     },
                   });
                 }}
+                onBlur={(e) => {
+                  const keyValue = (e.target as HTMLInputElement).value.trim();
+                  if (keyValue && selectedAIProvider?.provider) {
+                    saveApiKey(selectedAIProvider.provider, keyValue);
+                  }
+                }}
                 onKeyDown={(e) => {
                   const apiKeyVar = findKeyAndValue("api_key");
                   if (!apiKeyVar || !selectedAIProvider) return;
@@ -270,13 +285,15 @@ export const Providers = ({
           />
           <div className="flex gap-2">
             {fetchedModels.length > 0 ? (
-              <Selection
+              <SearchableSelect
                 selected={getCurrentModelValue()}
                 options={fetchedModels.map(model => ({
                   label: model,
                   value: model,
                 }))}
                 placeholder="Select a model"
+                searchPlaceholder="Search models (e.g. free, claude, llama)..."
+                emptyMessage="No matching models."
                 onChange={(value) => {
                   const modelVar = findKeyAndValue("model");
                   if (!modelVar?.key || !selectedAIProvider) return;

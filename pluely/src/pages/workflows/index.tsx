@@ -201,11 +201,17 @@ const WorkflowEditor = () => {
                     baseUrl = `${urlObj.protocol}//${urlObj.host}/v1`;
                 }
 
-                // Extract API Key from headers or variables
-                // Check variables first
+                // Extract API Key from variables first
                 apiKey = provider.variables?.API_KEY || "";
 
-                // If not in variables, check if it's hardcoded in the header
+                // Keychain fallback for SavedProviderConfig-based providers
+                if (!apiKey) {
+                    const { getApiKey } = await import("@/lib/keychain");
+                    const keychainKey = await getApiKey(providerId);
+                    if (keychainKey) apiKey = keychainKey;
+                }
+
+                // If not in variables or keychain, check if it's hardcoded in the header
                 if (!apiKey && curlJson.header) {
                     const authHeader = curlJson.header["Authorization"];
                     if (authHeader && authHeader.includes("Bearer ")) {
@@ -231,17 +237,8 @@ const WorkflowEditor = () => {
                 "Content-Type": "application/json"
             };
 
-            // If we have an API key (either resolved from variables or hardcoded), add it
-            // Note: If the key is still {{API_KEY}}, deepVariableReplacer will handle it if we pass variables
-            // But here we need to manually resolve it for the models call
-
-            let finalApiKey = apiKey;
-            if (!finalApiKey && provider.variables?.API_KEY) {
-                finalApiKey = provider.variables.API_KEY;
-            }
-
-            if (finalApiKey && !finalApiKey.includes("{{")) {
-                headers["Authorization"] = `Bearer ${finalApiKey}`;
+            if (apiKey && !apiKey.includes("{{")) {
+                headers["Authorization"] = `Bearer ${apiKey}`;
             }
 
             const isLocal = modelsUrl.includes("localhost") || modelsUrl.includes("127.0.0.1");
@@ -463,7 +460,7 @@ const WorkflowEditor = () => {
                                                                         <SelectContent>
                                                                             {allAiProviders.map(p => (
                                                                                 <SelectItem key={p.id} value={p.id || "unknown"}>
-                                                                                    {p.isCustom ? (p.id) : (p.id || "Unknown")}
+                                                                                    {p.name || p.id || "Unknown"}
                                                                                 </SelectItem>
                                                                             ))}
                                                                         </SelectContent>

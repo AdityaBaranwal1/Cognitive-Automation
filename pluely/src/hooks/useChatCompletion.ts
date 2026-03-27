@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useConfig, useAudio } from "@/contexts";
 import { MAX_FILES } from "@/config";
 import {
@@ -15,6 +15,7 @@ import {
   getProfileById,
 } from "@/lib";
 import { AttachedFile, ChatMessage, ChatConversation } from "@/types";
+import { injectKeychainKey, resolveFromSavedConfig } from "@/lib/functions/provider-resolver.function";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
@@ -133,13 +134,6 @@ export const useChatCompletion = (
       const signal = abortControllerRef.current.signal;
 
       try {
-        // Prepare message history for the AI
-        const messageHistory = (messages?.messages || []).map((msg) => ({
-          role: msg.role,
-          content: msg.content,
-        }));
-
-
         // HYBRID PROVIDER LOGIC: Use conversation's stored provider if available, otherwise fall back to global
         const effectiveProviderId = messages?.providerId || selectedAIProvider.provider;
         const effectiveModel = messages?.model || selectedAIProvider.variables?.model;
@@ -148,6 +142,41 @@ export const useChatCompletion = (
         const profileId = effectiveModel ? getProfileForModel(effectiveModel) : "vision-standard";
         const profile = getProfileById(profileId);
         const supportsVision = profile?.supportsVision ?? true;
+
+        // Find the most recent model_switch with a checkpoint for token optimization
+        const allMsgs = messages?.messages || [];
+        const lastSwitchIndex = allMsgs
+          .map((msg, i) => ({ msg, i }))
+          .filter(({ msg }) => msg.metadata?.type === "model_switch" && msg.metadata?.checkpoint)
+          .pop()?.i ?? -1;
+
+        // Only send messages AFTER the last checkpoint
+        const relevantMessages = lastSwitchIndex >= 0
+          ? allMsgs.slice(lastSwitchIndex + 1)
+          : allMsgs;
+
+        // Prepare message history: filter model_switch messages and sanitize images
+        const messageHistory = relevantMessages
+          .filter((msg) => msg.metadata?.type !== "model_switch")
+          .map((msg) => {
+            // Strip images from history if current model doesn't support vision
+            if (!supportsVision && Array.isArray(msg.content)) {
+              const textParts = (msg.content as any[])
+                .filter((part: any) => part.type === "text")
+                .map((part: any) => part.text || "")
+                .join("\n");
+              return { role: msg.role, content: textParts || "[Image content removed - text-only model]" };
+            }
+            return { role: msg.role, content: msg.content };
+          });
+
+        // Prepend checkpoint summary if available
+        if (lastSwitchIndex >= 0) {
+          const checkpoint = allMsgs[lastSwitchIndex]?.metadata?.checkpoint;
+          if (checkpoint) {
+            messageHistory.unshift({ role: "system" as const, content: checkpoint });
+          }
+        }
 
         console.log(`[Chat] Using profile "${profile?.name}" for model "${effectiveModel}" (vision: ${supportsVision})`);
 
@@ -173,15 +202,30 @@ export const useChatCompletion = (
           return;
         }
 
-        const provider = allAiProviders.find(
-          (p) => p.id === effectiveProviderId
-        );
-        if (!provider) {
-          setState((prev) => ({
-            ...prev,
-            error: "Invalid provider selected",
-          }));
-          return;
+        // Resolve provider: try SavedProviderConfig first, then legacy allAiProviders
+        const pid = effectiveProviderId || selectedAIProvider.provider;
+        const savedRes = await resolveFromSavedConfig(pid);
+        let resolvedProvider: typeof allAiProviders[0];
+        let resolvedVars: Record<string, string>;
+
+        if (savedRes) {
+          resolvedProvider = savedRes.provider;
+          resolvedVars = savedRes.selectedProvider.variables;
+        } else {
+          const legacyProvider = allAiProviders.find(
+            (p) => p.id === effectiveProviderId
+          );
+          if (!legacyProvider) {
+            setState((prev) => ({
+              ...prev,
+              error: "Invalid provider selected",
+            }));
+            return;
+          }
+          resolvedProvider = legacyProvider;
+          resolvedVars = await injectKeychainKey(pid,
+            { ...selectedAIProvider.variables, model: effectiveModel || selectedAIProvider.variables?.model }
+          );
         }
 
         // Add user message to UI immediately
@@ -214,15 +258,13 @@ export const useChatCompletion = (
         let fullResponse = "";
 
         try {
+
           // Use the fetchAIResponse function with signal
           for await (const chunk of fetchAIResponse({
-            provider: provider,
+            provider: resolvedProvider,
             selectedProvider: {
-              provider: effectiveProviderId || selectedAIProvider.provider,
-              variables: {
-                ...selectedAIProvider.variables,
-                model: effectiveModel || selectedAIProvider.variables?.model
-              }
+              provider: pid,
+              variables: resolvedVars
             },
             systemPrompt: systemPrompt || undefined,
             history: messageHistory,
@@ -650,49 +692,40 @@ export const useChatCompletion = (
   }, [handleScreenshotSubmit]);
 
   useEffect(() => {
-    let unlisten: any;
+    const unlistenRef = { current: null as (() => void) | null };
 
-    const setupListener = async () => {
-      unlisten = await listen("captured-selection", async (event: any) => {
-        // Only process if this context initiated the screenshot
-        if (!screenshotInitiatedByThisContext.current) {
-          return;
+    listen("captured-selection", async (event: any) => {
+      if (!screenshotInitiatedByThisContext.current) {
+        return;
+      }
+
+      if (isProcessingScreenshotRef.current) {
+        return;
+      }
+
+      isProcessingScreenshotRef.current = true;
+      const base64 = event.payload;
+      const config = screenshotConfigRef.current;
+
+      try {
+        if (config.mode === "auto") {
+          await handleScreenshotSubmit(base64 as string, config.autoPrompt);
+        } else if (config.mode === "manual") {
+          await handleScreenshotSubmit(base64 as string);
         }
-
-        if (isProcessingScreenshotRef.current) {
-          return;
-        }
-
-        isProcessingScreenshotRef.current = true;
-        const base64 = event.payload;
-        const config = screenshotConfigRef.current;
-
-        try {
-          if (config.mode === "auto") {
-            // Auto mode: Submit directly to AI with the configured prompt
-            await handleScreenshotSubmit(base64 as string, config.autoPrompt);
-          } else if (config.mode === "manual") {
-            // Manual mode: Add to attached files without prompt
-            await handleScreenshotSubmit(base64 as string);
-          }
-        } catch (error) {
-          console.error("Error processing selection:", error);
-        } finally {
-          setIsScreenshotLoading(false);
-          screenshotInitiatedByThisContext.current = false;
-          setTimeout(() => {
-            isProcessingScreenshotRef.current = false;
-          }, 100);
-        }
-      });
-    };
-
-    setupListener();
+      } catch (error) {
+        console.error("Error processing selection:", error);
+      } finally {
+        setIsScreenshotLoading(false);
+        screenshotInitiatedByThisContext.current = false;
+        setTimeout(() => {
+          isProcessingScreenshotRef.current = false;
+        }, 100);
+      }
+    }).then((fn) => { unlistenRef.current = fn; });
 
     return () => {
-      if (unlisten) {
-        unlisten();
-      }
+      if (unlistenRef.current) unlistenRef.current();
     };
   }, [handleScreenshotSubmit]);
 
@@ -707,6 +740,14 @@ export const useChatCompletion = (
       unlisten.then((fn) => fn());
     };
   }, []);
+
+  // Expose whether current model supports vision so UI can hide image attach
+  const currentSupportsVision = useMemo(() => {
+    const effectiveModel = messages?.model || selectedAIProvider.variables?.model;
+    const pid = effectiveModel ? getProfileForModel(effectiveModel) : "vision-standard";
+    const p = getProfileById(pid);
+    return p?.supportsVision ?? true;
+  }, [messages?.model, selectedAIProvider.variables?.model]);
 
   // Cleanup abort controller on unmount
   useEffect(() => {
@@ -751,5 +792,6 @@ export const useChatCompletion = (
     selectedSttProvider,
     allSttProviders,
     selectedAudioDevices,
+    currentSupportsVision,
   };
 };

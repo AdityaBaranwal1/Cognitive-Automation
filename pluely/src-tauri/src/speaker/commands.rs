@@ -110,13 +110,25 @@ pub async fn start_system_audio_capture(
     // Emit capture started event
     let _ = app_clone.emit("capture-started", sr);
 
+    // Register manual-stop listener BEFORE spawning the task so it's always cleaned
+    // up even if the task is aborted (e.g. on page reload). The listener ID is
+    // passed into the task and unlisted in the cleanup block below.
+    let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_flag_for_listener = stop_flag.clone();
+    let stop_listener = app_clone.listen("manual-stop-continuous", move |_| {
+        stop_flag_for_listener.store(true, std::sync::atomic::Ordering::Release);
+    });
+
     let state_clone = app.state::<crate::AudioState>();
     let task = tokio::spawn(async move {
         if vad_config.enabled {
             run_vad_capture(app_clone.clone(), stream, sr, vad_config, cancel_token).await;
         } else {
-            run_continuous_capture(app_clone.clone(), stream, sr, vad_config, cancel_token).await;
+            run_continuous_capture(app_clone.clone(), stream, sr, vad_config, cancel_token, stop_flag).await;
         }
+
+        // Always clean up the listener when the task ends (normal exit or cancellation)
+        app_clone.unlisten(stop_listener);
 
         let state = app_clone.state::<crate::AudioState>();
         {
@@ -273,12 +285,15 @@ async fn run_vad_capture(
 }
 
 // Continuous capture (VAD disabled)
+// stop_flag is registered by the caller (start_system_audio_capture) to ensure
+// cleanup even if this task is aborted on page reload.
 async fn run_continuous_capture(
     app: AppHandle,
     stream: impl StreamExt<Item = f32> + Unpin,
     sr: u32,
     config: VadConfig,
     cancel_token: CancellationToken,
+    stop_flag: Arc<std::sync::atomic::AtomicBool>,
 ) {
     let mut stream = stream;
     let max_samples = (sr as u64 * config.max_recording_duration_secs) as usize;
@@ -287,15 +302,6 @@ async fn run_continuous_capture(
     let mut audio_buffer = Vec::with_capacity(max_samples);
     let start_time = Instant::now();
     let max_duration = Duration::from_secs(config.max_recording_duration_secs);
-
-    // Atomic flag for manual stop
-    let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let stop_flag_for_listener = stop_flag.clone();
-
-    // Listen for manual stop event
-    let stop_listener = app.listen("manual-stop-continuous", move |_| {
-        stop_flag_for_listener.store(true, std::sync::atomic::Ordering::Release);
-    });
 
     // Emit recording started
     let _ = app.emit(
@@ -350,9 +356,6 @@ async fn run_continuous_capture(
             }
         }
     }
-
-    // Clean up event listener (CRITICAL)
-    app.unlisten(stop_listener);
 
     // Process and emit audio
     if !audio_buffer.is_empty() {
