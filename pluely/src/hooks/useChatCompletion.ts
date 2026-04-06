@@ -4,7 +4,6 @@ import { MAX_FILES } from "@/config";
 import {
   fetchAIResponse,
   saveConversation,
-  getConversationById,
   generateConversationTitle,
   MESSAGE_ID_OFFSET,
   generateMessageId,
@@ -284,7 +283,7 @@ export const useChatCompletion = (
 
             fullResponse += chunk;
 
-            // Update the last message (assistant's response) in real-time
+            // Update the assistant's response in real-time
             const assistantMsg: ChatMessage = {
               id: generateMessageId("assistant", timestamp + MESSAGE_ID_OFFSET),
               role: "assistant",
@@ -292,27 +291,10 @@ export const useChatCompletion = (
               timestamp: timestamp + MESSAGE_ID_OFFSET,
             };
 
-            const updatedWithResponse = {
+            setMessages({
               ...updatedMessages,
               messages: [...updatedMessages.messages, assistantMsg],
-            };
-
-            // Check if assistant message already exists
-            const lastMessage =
-              updatedWithResponse.messages[
-              updatedWithResponse.messages.length - 1
-              ];
-            if (lastMessage.role === "assistant") {
-              // Update existing assistant message
-              updatedWithResponse.messages[
-                updatedWithResponse.messages.length - 1
-              ] = assistantMsg;
-            } else {
-              // Add new assistant message
-              updatedWithResponse.messages.push(assistantMsg);
-            }
-
-            setMessages(updatedWithResponse);
+            });
 
             // Auto-scroll during streaming
             scrollToBottom();
@@ -401,18 +383,7 @@ export const useChatCompletion = (
             assistantMsg,
           ];
 
-          // Get existing conversation if updating
-          let existingConversation = null;
-          if (conversationId) {
-            try {
-              existingConversation = await getConversationById(conversationId);
-            } catch (error) {
-              console.error("Failed to get existing conversation:", error);
-            }
-          }
-
           const title =
-            existingConversation?.title ||
             messages?.title ||
             generateConversationTitle(input);
 
@@ -420,23 +391,15 @@ export const useChatCompletion = (
             id: conversationId,
             title,
             messages: newMessages,
-            createdAt:
-              existingConversation?.createdAt ||
-              messages?.createdAt ||
-              timestamp,
+            createdAt: messages?.createdAt || timestamp,
             updatedAt: timestamp,
+            providerId: messages?.providerId,
+            model: messages?.model,
           };
 
           try {
             await saveConversation(conversation);
-
-            // Reload conversation from database to ensure consistency
-            const updatedConversation = await getConversationById(
-              conversationId
-            );
-            if (updatedConversation) {
-              setMessages(updatedConversation);
-            }
+            setMessages(conversation);
           } catch (error) {
             console.error("Failed to save conversation:", error);
             setState((prev) => ({

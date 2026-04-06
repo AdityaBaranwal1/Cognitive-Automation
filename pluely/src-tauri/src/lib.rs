@@ -100,6 +100,7 @@ pub fn run() {
             input::get_modifier_state,
             // Persistent data sync (cross-window)
             persistent::save_persistent_data,
+            persistent::save_to_downloads,
         ])
         // --- WEBVIEW LIFECYCLE GUARD ---
         // Catches webview reloads (F5, hot-reload, navigation) that would otherwise

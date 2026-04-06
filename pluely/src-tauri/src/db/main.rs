@@ -24,5 +24,12 @@ pub fn migrations() -> Vec<Migration> {
             sql: include_str!("migrations/add-provider-columns.sql"),
             kind: MigrationKind::Up,
         },
+        // Migration 4: Add metadata column to messages for model-switch data
+        Migration {
+            version: 4,
+            description: "add_message_metadata",
+            sql: include_str!("migrations/add-message-metadata.sql"),
+            kind: MigrationKind::Up,
+        },
     ]
 }

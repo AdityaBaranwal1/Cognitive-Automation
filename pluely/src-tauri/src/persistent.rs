@@ -71,3 +71,27 @@ pub async fn save_persistent_data(
 
     Ok(())
 }
+
+/// Save text content to the user's Downloads directory.
+/// Returns the full path of the saved file.
+#[tauri::command]
+pub async fn save_to_downloads(
+    app: AppHandle,
+    filename: String,
+    content: String,
+) -> Result<String, String> {
+    let download_dir = app
+        .path()
+        .download_dir()
+        .map_err(|e| format!("Failed to get downloads dir: {}", e))?;
+
+    fs::create_dir_all(&download_dir)
+        .map_err(|e| format!("Failed to create downloads dir: {}", e))?;
+
+    let file_path = download_dir.join(&filename);
+
+    fs::write(&file_path, &content)
+        .map_err(|e| format!("Failed to write file: {}", e))?;
+
+    Ok(file_path.to_string_lossy().to_string())
+}

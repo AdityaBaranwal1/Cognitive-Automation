@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Card } from "@/components";
 import { CheckCircle2Icon, LoaderIcon, ShieldAlertIcon } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -17,6 +17,16 @@ export const PermissionFlow = ({
   const [permissionState, setPermissionState] =
     useState<PermissionState>("checking");
   const [checkAttempts, setCheckAttempts] = useState(0);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cleanup polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, []);
 
   // Initial permission check
   useEffect(() => {
@@ -47,11 +57,16 @@ export const PermissionFlow = ({
       setPermissionState("requesting");
       await invoke("request_system_audio_access");
 
+      // Clear any existing poll before starting a new one
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+
       // Start polling for permission grant
       let attempts = 0;
       const maxAttempts = 20; // Poll for up to 20 seconds
 
-      const pollInterval = setInterval(async () => {
+      pollIntervalRef.current = setInterval(async () => {
         attempts++;
         setCheckAttempts(attempts);
 
@@ -59,11 +74,13 @@ export const PermissionFlow = ({
           const hasAccess = await invoke<boolean>("check_system_audio_access");
 
           if (hasAccess) {
-            clearInterval(pollInterval);
+            clearInterval(pollIntervalRef.current!);
+            pollIntervalRef.current = null;
             setPermissionState("granted");
             setTimeout(() => onPermissionGranted(), 500);
           } else if (attempts >= maxAttempts) {
-            clearInterval(pollInterval);
+            clearInterval(pollIntervalRef.current!);
+            pollIntervalRef.current = null;
             setPermissionState("denied");
             onPermissionDenied();
           }

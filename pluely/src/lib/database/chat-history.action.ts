@@ -1,5 +1,5 @@
 import { getDatabase } from "./config";
-import { ChatConversation } from "@/types";
+import { ChatConversation, ConversationSummary } from "@/types";
 import { safeLocalStorage } from "@/lib";
 
 // Legacy localStorage key for migration purposes
@@ -27,6 +27,7 @@ interface DbMessage {
   content: string;
   timestamp: number;
   attached_files: string | null; // JSON string
+  metadata: string | null; // JSON string
 }
 
 /**
@@ -88,6 +89,49 @@ function validateMessage(message: any): boolean {
 }
 
 /**
+ * Insert a single message row into the database
+ */
+async function insertMessage(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  message: any,
+  conversationId: string
+): Promise<void> {
+  const attachedFilesJson = message.attachedFiles
+    ? JSON.stringify(message.attachedFiles)
+    : null;
+  const metadataJson = message.metadata
+    ? JSON.stringify(message.metadata)
+    : null;
+
+  await db.execute(
+    "INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [
+      message.id,
+      conversationId,
+      message.role,
+      message.content,
+      message.timestamp || Date.now(),
+      attachedFilesJson,
+      metadataJson,
+    ]
+  );
+}
+
+/**
+ * Map a database message row to a ChatMessage object
+ */
+function mapDbMessage(msg: DbMessage) {
+  return {
+    id: msg.id,
+    role: msg.role,
+    content: msg.content,
+    timestamp: msg.timestamp,
+    attachedFiles: safeJsonParse(msg.attached_files, undefined),
+    metadata: safeJsonParse(msg.metadata, undefined),
+  };
+}
+
+/**
  * Create a new conversation with transaction safety
  */
 export async function createConversation(
@@ -119,22 +163,7 @@ export async function createConversation(
         console.warn("Skipping invalid message in conversation creation");
         continue;
       }
-
-      const attachedFilesJson = message.attachedFiles
-        ? JSON.stringify(message.attachedFiles)
-        : null;
-
-      await db.execute(
-        "INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES (?, ?, ?, ?, ?, ?)",
-        [
-          message.id,
-          conversation.id,
-          message.role,
-          message.content,
-          message.timestamp,
-          attachedFilesJson,
-        ]
-      );
+      await insertMessage(db, message, conversation.id);
     }
 
     return conversation;
@@ -190,16 +219,47 @@ export async function getAllConversations(): Promise<ChatConversation[]> {
       providerId: conv.provider_id || undefined,
       model: conv.model || undefined,
       messages:
-        messagesByConversation.get(conv.id)?.map((msg) => ({
-          id: msg.id,
-          role: msg.role,
-          content: msg.content,
-          timestamp: msg.timestamp,
-          attachedFiles: safeJsonParse(msg.attached_files, undefined),
-        })) || [],
+        messagesByConversation.get(conv.id)?.map(mapDbMessage) || [],
     }));
   } catch (error) {
     console.error("Failed to get all conversations:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get conversation summaries for list view (no message content loaded)
+ */
+export async function getAllConversationSummaries(): Promise<ConversationSummary[]> {
+  const db = await getDatabase();
+
+  try {
+    const rows = await db.select<Array<{
+      id: string;
+      title: string;
+      created_at: number;
+      updated_at: number;
+      provider_id: string | null;
+      model: string | null;
+      message_count: number;
+    }>>(
+      `SELECT c.id, c.title, c.created_at, c.updated_at, c.provider_id, c.model,
+              (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count
+       FROM conversations c
+       ORDER BY c.updated_at DESC`
+    );
+
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      messageCount: row.message_count,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      providerId: row.provider_id || undefined,
+      model: row.model || undefined,
+    }));
+  } catch (error) {
+    console.error("Failed to get conversation summaries:", error);
     throw error;
   }
 }
@@ -243,13 +303,7 @@ export async function getConversationById(
       updatedAt: conv.updated_at,
       providerId: conv.provider_id || undefined,
       model: conv.model || undefined,
-      messages: messages.map((msg) => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        timestamp: msg.timestamp,
-        attachedFiles: safeJsonParse(msg.attached_files, undefined),
-      })),
+      messages: messages.map(mapDbMessage),
     };
   } catch (error) {
     console.error(`Failed to get conversation ${id}:`, error);
@@ -298,22 +352,7 @@ export async function updateConversation(
           console.warn("Skipping invalid message in conversation update");
           continue;
         }
-
-        const attachedFilesJson = message.attachedFiles
-          ? JSON.stringify(message.attachedFiles)
-          : null;
-
-        await db.execute(
-          "INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES (?, ?, ?, ?, ?, ?)",
-          [
-            message.id,
-            conversation.id,
-            message.role,
-            message.content,
-            message.timestamp,
-            attachedFilesJson,
-          ]
-        );
+        await insertMessage(db, message, conversation.id);
       }
     } catch (messageError) {
       // Rollback: restore original messages
@@ -324,7 +363,7 @@ export async function updateConversation(
       for (const msg of existingMessages) {
         await db
           .execute(
-            "INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
               msg.id,
               msg.conversation_id,
@@ -332,6 +371,7 @@ export async function updateConversation(
               msg.content,
               msg.timestamp,
               msg.attached_files,
+              msg.metadata,
             ]
           )
           .catch(() => { });
@@ -356,14 +396,42 @@ export async function saveConversation(
     throw new Error("Invalid conversation data");
   }
 
-  try {
-    const existing = await getConversationById(conversation.id);
+  const db = await getDatabase();
 
-    if (existing) {
-      return await updateConversation(conversation);
-    } else {
-      return await createConversation(conversation);
+  try {
+    // Upsert conversation in a single query
+    await db.execute(
+      `INSERT INTO conversations (id, title, created_at, updated_at, provider_id, model)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         title = excluded.title,
+         updated_at = excluded.updated_at,
+         provider_id = COALESCE(excluded.provider_id, conversations.provider_id),
+         model = COALESCE(excluded.model, conversations.model)`,
+      [
+        conversation.id,
+        conversation.title,
+        conversation.createdAt || Date.now(),
+        conversation.updatedAt || Date.now(),
+        conversation.providerId || null,
+        conversation.model || null,
+      ]
+    );
+
+    // Replace all messages
+    await db.execute("DELETE FROM messages WHERE conversation_id = ?", [
+      conversation.id,
+    ]);
+
+    for (const message of conversation.messages) {
+      if (!validateMessage(message)) {
+        console.warn("Skipping invalid message in conversation save");
+        continue;
+      }
+      await insertMessage(db, message, conversation.id);
     }
+
+    return conversation;
   } catch (error) {
     console.error("Failed to save conversation:", error);
     throw error;
@@ -507,34 +575,14 @@ export async function migrateLocalStorageToSQLite(): Promise<{
           conversation.messages.length > 0
         ) {
           for (const message of conversation.messages) {
-            // Validate message
-            if (
-              !message?.id ||
-              !message?.role ||
-              typeof message?.content !== "string"
-            ) {
+            if (!validateMessage(message)) {
               console.warn(
                 `Skipping invalid message in conversation ${conversation.id}:`,
                 message
               );
               continue;
             }
-
-            const attachedFilesJson = message.attachedFiles
-              ? JSON.stringify(message.attachedFiles)
-              : null;
-
-            await db.execute(
-              "INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES (?, ?, ?, ?, ?, ?)",
-              [
-                message.id,
-                conversation.id,
-                message.role,
-                message.content,
-                message.timestamp || Date.now(),
-                attachedFilesJson,
-              ]
-            );
+            await insertMessage(db, message, conversation.id);
           }
         }
 

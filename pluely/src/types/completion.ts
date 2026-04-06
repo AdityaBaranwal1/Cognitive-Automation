@@ -35,6 +35,16 @@ export interface ChatConversation {
   model?: string;       // Model used to create this conversation
 }
 
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  messageCount: number;
+  createdAt: number;
+  updatedAt: number;
+  providerId?: string;
+  model?: string;
+}
+
 export interface CompletionState {
   input: string;
   response: string;

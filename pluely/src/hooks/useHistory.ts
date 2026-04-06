@@ -1,35 +1,32 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  getAllConversations,
+  getAllConversationSummaries,
   deleteConversation,
   deleteAllConversations,
   DOWNLOAD_SUCCESS_DISPLAY_MS,
 } from "@/lib";
-import { ChatConversation } from "@/types/completion";
+import { ChatConversation, ConversationSummary } from "@/types/completion";
+import { generateConversationMarkdown, generateFilename } from "@/lib/functions/conversation.function";
 
 export type UseHistoryType = ReturnType<typeof useHistory>;
 
 export interface UseHistoryReturn {
   // State
-  conversations: ChatConversation[];
+  conversations: ConversationSummary[];
   selectedConversationId: string | null;
   viewingConversation: ChatConversation | null;
-  downloadedConversations: Set<string>;
   deleteConfirm: string | null;
   isDownloaded: boolean;
   isAttached: boolean;
+  downloadError: string | null;
 
   // Actions
   handleViewConversation: (conversation: ChatConversation) => void;
-  handleDownloadConversation: (
-    conversation: ChatConversation,
-    e: React.MouseEvent
-  ) => void;
   handleDeleteConfirm: (conversationId: string) => void;
   confirmDelete: () => void;
   cancelDelete: () => void;
-  clearAllConversations: () => Promise<void>; // NEW: Bulk delete
+  clearAllConversations: () => Promise<void>;
   handleAttachToOverlay: (conversationId: string) => void;
   handleDownload: (
     conversation: ChatConversation | null,
@@ -44,7 +41,7 @@ export interface UseHistoryReturn {
 
 export function useHistory(): UseHistoryReturn {
   const [isLoading, setIsLoading] = useState(false);
-  const [conversations, setConversations] = useState<ChatConversation[]>([]);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [search, setSearch] = useState("");
   const [selectedConversationId, setSelectedConversationId] = useState<
     string | null
@@ -52,20 +49,17 @@ export function useHistory(): UseHistoryReturn {
   const [viewingConversation, setViewingConversation] =
     useState<ChatConversation | null>(null);
 
-  const [downloadedConversations, setDownloadedConversations] = useState<
-    Set<string>
-  >(new Set());
-
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [isAttached, setIsAttached] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   // Function to refresh conversations
   const refreshConversations = useCallback(async () => {
     try {
       setIsLoading(true);
-      const loadedConversations = await getAllConversations();
-      setConversations(loadedConversations);
+      const summaries = await getAllConversationSummaries();
+      setConversations(summaries);
     } catch (error) {
       console.error("Failed to load conversations:", error);
       setConversations([]);
@@ -83,48 +77,35 @@ export function useHistory(): UseHistoryReturn {
     setViewingConversation(conversation);
   };
 
-  const handleDownloadConversation = (
+  const handleDownloadConversation = async (
     conversation: ChatConversation,
     e: React.MouseEvent
   ) => {
     e.stopPropagation();
+    setDownloadError(null);
 
-    // Show download success state
-    setDownloadedConversations((prev) => new Set(prev).add(conversation.id));
+    const markdown = generateConversationMarkdown(conversation);
+    const filename = generateFilename(conversation.title);
 
+    // Try Rust file save first, fall back to clipboard
     try {
-      // Convert conversation to markdown format
-      const markdown = generateConversationMarkdown(conversation);
-
-      // Create and download the file
-      const blob = new Blob([markdown], { type: "text/markdown" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = generateFilename(conversation.title);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("Failed to download conversation:", error);
-      // Remove from success state if download failed
-      setDownloadedConversations((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(conversation.id);
-        return newSet;
-      });
-      return;
+      await invoke("save_to_downloads", { filename, content: markdown });
+      setIsDownloaded(true);
+      setTimeout(() => setIsDownloaded(false), DOWNLOAD_SUCCESS_DISPLAY_MS);
+    } catch (rustError) {
+      console.warn("Rust save_to_downloads failed, falling back to clipboard:", rustError);
+      try {
+        await navigator.clipboard.writeText(markdown);
+        setIsDownloaded(true);
+        setTimeout(() => setIsDownloaded(false), DOWNLOAD_SUCCESS_DISPLAY_MS);
+        setDownloadError("Saved to clipboard (file save unavailable)");
+        setTimeout(() => setDownloadError(null), 3000);
+      } catch (clipboardError) {
+        console.error("Both download methods failed:", clipboardError);
+        setDownloadError("Download failed: " + String(rustError));
+        setTimeout(() => setDownloadError(null), 5000);
+      }
     }
-
-    // Clear success state after display timeout
-    setTimeout(() => {
-      setDownloadedConversations((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(conversation.id);
-        return newSet;
-      });
-    }, DOWNLOAD_SUCCESS_DISPLAY_MS);
   };
 
   const handleDeleteConfirm = (conversationId: string) => {
@@ -188,41 +169,7 @@ export function useHistory(): UseHistoryReturn {
   ) => {
     if (conversation) {
       handleDownloadConversation(conversation, e);
-      setIsDownloaded(true);
-      setTimeout(() => {
-        setIsDownloaded(false);
-      }, DOWNLOAD_SUCCESS_DISPLAY_MS);
     }
-  };
-
-  // Helper functions
-  const generateConversationMarkdown = (
-    conversation: ChatConversation
-  ): string => {
-    let markdown = `# ${conversation.title}\n\n`;
-    markdown += `**Created:** ${new Date(
-      conversation.createdAt
-    ).toLocaleString()}\n`;
-    markdown += `**Updated:** ${new Date(
-      conversation.updatedAt
-    ).toLocaleString()}\n`;
-    markdown += `**Messages:** ${conversation.messages.length}\n\n---\n\n`;
-
-    conversation.messages.forEach((message, index) => {
-      const roleLabel = message.role.toUpperCase();
-      markdown += `## ${roleLabel}: ${message.content}\n`;
-
-      if (index < conversation.messages.length - 1) {
-        markdown += "\n";
-      }
-    });
-
-    return markdown;
-  };
-
-  const generateFilename = (title: string): string => {
-    const sanitizedTitle = title.replace(/[^a-z0-9]/gi, "_").toLowerCase();
-    return `${sanitizedTitle.substring(0, 16)}.md`;
   };
 
   return {
@@ -230,18 +177,17 @@ export function useHistory(): UseHistoryReturn {
     conversations,
     selectedConversationId,
     viewingConversation,
-    downloadedConversations,
     deleteConfirm,
     isDownloaded,
     isAttached,
+    downloadError,
 
     // Actions
     handleViewConversation,
-    handleDownloadConversation,
     handleDeleteConfirm,
     confirmDelete,
     cancelDelete,
-    clearAllConversations, // NEW: Bulk delete
+    clearAllConversations,
     handleAttachToOverlay,
     handleDownload,
     // Utilities

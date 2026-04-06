@@ -6,6 +6,7 @@ import {
   Markdown,
   Textarea,
 } from "@/components";
+import { CopyButton } from "@/components/Markdown/copy-button";
 import { getConversationById } from "@/lib";
 import { ChatConversation } from "@/types";
 import {
@@ -63,6 +64,7 @@ const View = () => {
     handleDownload,
     isDownloaded,
     isAttached,
+    downloadError,
   } = useHistory();
 
   const completion = useChatCompletion(
@@ -285,8 +287,8 @@ const View = () => {
                         }`}
                     >
                       <Card
-                        className={`px-4 text-xs lg:text-sm py-0 transition-all select-none shadow-none ${isUser
-                          ? "!bg-primary text-primary-foreground !border-primary rounded-tr-sm"
+                        className={`group/msg relative px-4 text-xs lg:text-sm py-0 transition-all shadow-none ${isUser
+                          ? "!bg-primary text-primary-foreground !border-primary rounded-tr-sm select-none"
                           : "!bg-muted/50 dark:!bg-muted/30 rounded-tl-sm"
                           }`}
                       >
@@ -313,6 +315,9 @@ const View = () => {
                             ))}
                           </div>
                         )}
+                        <div className={`invisible absolute top-1 ${isUser ? "left-1" : "right-1"} opacity-0 transition-all duration-200 group-hover/msg:visible group-hover/msg:opacity-100`}>
+                          <CopyButton content={message.content} copyMessage="Copied message to clipboard" />
+                        </div>
                       </Card>
                       <Badge
                         variant="outline"
@@ -342,6 +347,13 @@ const View = () => {
 
       {/* Sticky Footer Input */}
       <div className="absolute bottom-0 left-0 right-0 bg-background/10 backdrop-blur">
+        {downloadError && (
+          <div className="px-4 pt-3 pb-0">
+            <div className={`p-2 rounded text-sm ${downloadError.includes("clipboard") ? "bg-yellow-500/10 border border-yellow-500/20 text-yellow-700 dark:text-yellow-400" : "bg-destructive/10 border border-destructive/20 text-destructive"}`}>
+              {downloadError}
+            </div>
+          </div>
+        )}
         {completion.error && (
           <div className="px-4 pt-3 pb-0">
             <div className="p-2 bg-destructive/10 border border-destructive/20 rounded text-sm text-destructive">
