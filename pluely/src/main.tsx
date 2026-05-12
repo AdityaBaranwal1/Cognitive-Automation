@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import Overlay from "./components/Overlay";
 import { ConfigProvider, AudioProvider, WorkflowProvider, ThemeProvider } from "./contexts";
 import "./global.css";
+import "./workflow/steps"; // Side-effecting: registers all built-in step types
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import AppRoutes from "./routes";
 

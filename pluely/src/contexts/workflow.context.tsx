@@ -1,9 +1,9 @@
 import { STORAGE_KEYS } from "@/config";
 import { safeLocalStorage } from "@/lib";
-import { getShortcutsConfig, persistAndSync } from "@/lib/storage";
+import { persistAndSync } from "@/lib/storage";
 import { useTauriEvent } from "@/lib/tauri/use-event";
+import { useWorkflowShortcutSync } from "@/lib/shortcuts/workflow-shortcuts";
 import { IWorkflowContextType, Workflow, WorkflowExecution } from "@/types";
-import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
     ReactNode,
@@ -11,7 +11,6 @@ import {
     useContext,
     useEffect,
     useState,
-    useRef,
 } from "react";
 
 // Create the context
@@ -63,82 +62,9 @@ export const WorkflowProvider = ({ children }: { children: ReactNode }) => {
         [isMainWindow],
     );
 
-    // --- HOTKEY OPTIMIZATION START ---
-
-    // Store the "fingerprint" of the last registered shortcuts
-    const prevShortcutsHash = useRef<string>("");
-
-    // Sync workflows to shortcuts (OPTIMIZED)
-    useEffect(() => {
-        const syncWorkflowShortcuts = async () => {
-            // 1. Filter down to ONLY the data that matters for hotkeys
-            const hotkeyData = workflows.map((w) => ({
-                id: w.id,
-                key: w.trigger.key,
-                emergencyStopKey: w.trigger.emergencyStopKey,
-                enabled: w.trigger.enabled,
-            }));
-
-            // 2. Create a stable string representation (Hash)
-            const currentHash = JSON.stringify(hotkeyData);
-
-            // 3. THE GUARD CLAUSE:
-            if (currentHash === prevShortcutsHash.current) {
-                return;
-            }
-
-            // 4. Update the ref for the next render
-            prevShortcutsHash.current = currentHash;
-
-            console.log("⚡ Updating System Shortcuts (Config Changed)...");
-
-            // 5. Proceed with the update logic
-            const currentShortcuts = getShortcutsConfig();
-            const workflowBindings: Record<string, any> = {};
-
-            workflows.forEach((w) => {
-                // Register trigger hotkey
-                if (w.trigger.type === "hotkey" && w.trigger.enabled && w.trigger.key) {
-                    workflowBindings[w.id] = {
-                        action: w.id,
-                        key: w.trigger.key,
-                        enabled: true,
-                        label: w.name,
-                    };
-                }
-                // Register emergency stop hotkey
-                if (w.trigger.emergencyStopKey) {
-                    workflowBindings[`${w.id}_stop`] = {
-                        action: `${w.id}_stop`,
-                        key: w.trigger.emergencyStopKey,
-                        enabled: true,
-                        label: `Emergency Stop: ${w.name}`,
-                    };
-                }
-            });
-
-            // Merge bindings
-            const newConfig = {
-                bindings: {
-                    ...currentShortcuts.bindings,
-                    ...workflowBindings,
-                },
-            };
-
-            try {
-                await invoke("update_shortcuts", { config: newConfig });
-            } catch (error) {
-                console.error("Failed to update workflow shortcuts:", error);
-            }
-        };
-
-        // Run sync
-        if (workflows.length > 0) {
-            syncWorkflowShortcuts();
-        }
-    }, [workflows]);
-
-    // --- HOTKEY OPTIMIZATION END ---
+    // Sync workflow trigger + emergency-stop hotkeys to the OS.
+    // Single-effect, hash-guarded helper lives in @/lib/shortcuts/workflow-shortcuts.
+    useWorkflowShortcutSync(workflows);
 
     const saveWorkflow = async (workflow: Workflow) => {
         const newWorkflows = [...workflows, workflow];

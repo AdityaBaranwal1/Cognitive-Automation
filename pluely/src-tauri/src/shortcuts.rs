@@ -428,7 +428,9 @@ pub fn register_shortcut<R: Runtime>(
         format!("Invalid shortcut '{}' for action '{}': {}", key, action_id, e)
     })?;
 
-    // Check if this action_id already has a registered shortcut
+    // Check if this action_id already has a registered shortcut, AND check that no
+    // other action_id is already bound to the same key string (audit #12: previously
+    // duplicate registrations relied on undefined HashMap iteration order).
     {
         let state = app.state::<RegisteredShortcuts>();
         let registered = match state.shortcuts.lock() {
@@ -438,6 +440,17 @@ pub fn register_shortcut<R: Runtime>(
                 poisoned.into_inner()
             }
         };
+
+        // Reject if a different action_id already owns this key.
+        if let Some((conflicting_id, _)) = registered
+            .iter()
+            .find(|(id, k)| *k == &key && *id != &action_id)
+        {
+            return Err(format!(
+                "Shortcut conflict: '{}' is already bound to action '{}'",
+                key, conflicting_id
+            ));
+        }
 
         // If action already registered with a different key, unregister old one first
         if let Some(old_key) = registered.get(&action_id) {

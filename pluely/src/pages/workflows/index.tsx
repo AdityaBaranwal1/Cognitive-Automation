@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useConfig, useWorkflow, useSystemPrompts } from "@/contexts";
-import { Workflow, WorkflowStep, AIStepConfig, CaptureStepConfig } from "@/types";
+import { Workflow, WorkflowStep } from "@/types";
+import { getStepDefaults, getStepLabel, allSteps } from "@/workflow/core/registry";
+import { OUTPUT_ACTION_OPTIONS } from "@/lib/workflow/output-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,29 +55,11 @@ const WorkflowEditor = () => {
 
     const handleAddStep = (type: WorkflowStep["type"]) => {
         if (!selectedWorkflow) return;
-
-        let config: any = {};
-        if (type === "capture_region") {
-            config = { x: 0, y: 0, width: 0, height: 0, mode: "fixed" } as CaptureStepConfig;
-        } else if (type === "ai_process") {
-            config = { prompt: "", model: "qwen2-vl-2b-instruct", providerId: "lm-studio" } as AIStepConfig;
-        } else if (type === "action_notification") {
-            config = { title: "Show in Chat Overlay" };
-        } else if (type === "keypress") {
-            config = { key: "PageDown", modifiers: [] };
-        } else if (type === "wait") {
-            config = { durationMs: 500 };
-        } else if (type === "loop") {
-            config = { iterations: 3, children: [] };
-        } else if (type === "await_input") {
-            config = { timeout: 0, keymap: [{ key: "F6", action: "continue", label: "Done" }] };
-        }
         const newStep: WorkflowStep = {
             id: crypto.randomUUID(),
             type,
-            config,
+            config: getStepDefaults(type) as WorkflowStep["config"],
         };
-
         updateWorkflow({
             ...selectedWorkflow,
             steps: [...selectedWorkflow.steps, newStep],
@@ -333,13 +317,7 @@ const WorkflowEditor = () => {
                                                         <div className="bg-primary/10 p-1 rounded text-primary text-xs w-6 h-6 flex items-center justify-center">
                                                             {index + 1}
                                                         </div>
-                                                        {step.type === "capture_region" && "Capture Region"}
-                                                        {step.type === "ai_process" && "AI Processing"}
-                                                        {step.type === "action_notification" && "Output Action"}
-                                                        {step.type === "keypress" && "Keypress"}
-                                                        {step.type === "wait" && "⏳ Wait"}
-                                                        {step.type === "loop" && "🔄 Loop"}
-                                                        {step.type === "await_input" && "⏸️ Await Input"}
+                                                        {getStepLabel(step.type)}
                                                     </CardTitle>
                                                 </CardHeader>
                                                 <CardContent className="p-4 pt-2 space-y-4">
@@ -459,8 +437,11 @@ const WorkflowEditor = () => {
                                                                     <SelectValue placeholder="Select output destination" />
                                                                 </SelectTrigger>
                                                                 <SelectContent>
-                                                                    <SelectItem value="Show in Chat Overlay">Show in Chat Overlay</SelectItem>
-                                                                    <SelectItem value="Copy to Clipboard">Copy to Clipboard</SelectItem>
+                                                                    {OUTPUT_ACTION_OPTIONS.map((opt) => (
+                                                                        <SelectItem key={opt.id} value={opt.label}>
+                                                                            {opt.label}
+                                                                        </SelectItem>
+                                                                    ))}
                                                                 </SelectContent>
                                                             </Select>
                                                         </div>
@@ -808,13 +789,18 @@ const WorkflowEditor = () => {
                                         ))}
 
                                         <div className="flex gap-2 justify-center pt-4 flex-wrap">
-                                            <Button variant="outline" size="sm" onClick={() => handleAddStep("capture_region")}>+ Capture</Button>
-                                            <Button variant="outline" size="sm" onClick={() => handleAddStep("keypress")}>+ Keypress</Button>
-                                            <Button variant="outline" size="sm" onClick={() => handleAddStep("wait")}>+ Wait</Button>
-                                            <Button variant="outline" size="sm" onClick={() => handleAddStep("loop")}>+ Loop</Button>
-                                            <Button variant="outline" size="sm" onClick={() => handleAddStep("await_input")}>+ Await</Button>
-                                            <Button variant="outline" size="sm" onClick={() => handleAddStep("ai_process")}>+ AI Process</Button>
-                                            <Button variant="outline" size="sm" onClick={() => handleAddStep("action_notification")}>+ Output</Button>
+                                            {allSteps()
+                                                .filter((d) => d.type !== "system_action")
+                                                .map((d) => (
+                                                    <Button
+                                                        key={d.type}
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => handleAddStep(d.type)}
+                                                    >
+                                                        + {d.label}
+                                                    </Button>
+                                                ))}
                                         </div>
                                     </div>
                                 </ScrollArea>

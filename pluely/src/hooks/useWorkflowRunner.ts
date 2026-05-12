@@ -5,6 +5,7 @@ import { useConfig, useWorkflow } from "@/contexts";
 import { useGlobalShortcuts } from "./useGlobalShortcuts";
 import { Workflow, AIStepConfig, WorkflowStep, WorkflowExecutionStatus } from "@/types";
 import { saveConversation, generateMessageId, generateConversationTitle } from "@/lib";
+import { OutputAction, resolveOutputAction } from "@/lib/workflow/output-actions";
 import { TYPE_PROVIDER } from "@/types/provider.type";
 
 import { ExecutionContext, createExecutionContext, createEmitProgress } from "./workflow/useWorkflowState";
@@ -100,10 +101,9 @@ export const useWorkflowRunner = () => {
                     });
 
                     const outputText = typeof lastResult === "string" ? lastResult : JSON.stringify(lastResult);
-                    const actionConfig = step.config as any;
-                    const isCopy = actionConfig.title === "Copy to Clipboard" || actionConfig.action === "copy_to_clipboard";
+                    const action = resolveOutputAction(step.config);
 
-                    if (isCopy) {
+                    if (action === OutputAction.CopyToClipboard) {
                         await navigator.clipboard.writeText(outputText);
                         if ("Notification" in window && Notification.permission === "granted") {
                             new Notification("Copied to Clipboard", { body: "AI response copied" });

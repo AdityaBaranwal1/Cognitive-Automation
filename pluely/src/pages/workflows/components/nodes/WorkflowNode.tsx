@@ -1,126 +1,18 @@
 import { useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import {
-    Camera,
-    Brain,
-    Clock,
-    Repeat,
-    Keyboard,
-    Send,
-    Pause,
-    Zap,
-    Loader2
-} from 'lucide-react';
+import { Zap, Loader2 } from 'lucide-react';
 import type { WorkflowNodeData } from '../../hooks/useWorkflowGraph';
-import type { WorkflowExecutionStatus } from '@/types';
+import type { WorkflowExecutionStatus, WorkflowStep } from '@/types';
+import { getStepSummary } from '@/workflow/core/registry';
+import { getStepIcon, getStepColor, getStepTooltip } from '@/workflow/ui/registry-ui';
 
-// Icon mapping for step types
-const stepIcons: Record<string, React.ElementType> = {
-    capture_screen: Camera,
-    capture_region: Camera,
-    ai_process: Brain,
-    wait: Clock,
-    loop: Repeat,
-    keypress: Keyboard,
-    await_input: Pause,
-    action_notification: Send,
-    system_action: Zap,
-};
-
-// Color scheme for each step type (accent colors)
-const stepColors: Record<string, string> = {
-    capture_screen: '#22c55e',   // green
-    capture_region: '#22c55e',   // green
-    ai_process: '#8b5cf6',       // purple
-    wait: '#f59e0b',             // amber
-    loop: '#3b82f6',             // blue
-    keypress: '#06b6d4',         // cyan
-    await_input: '#ec4899',      // pink
-    action_notification: '#6366f1', // indigo
-    system_action: '#ef4444',    // red
-};
-
-// Get summary text for each step type
-function getNodeSummary(data: WorkflowNodeData): string {
-    const config = data.config as any;
-
-    switch (data.type) {
-        case 'ai_process':
-            const provider = config?.providerId || 'provider';
-            const model = config?.model || 'model';
-            const shortModel = model.length > 15 ? model.slice(0, 15) + '...' : model;
-            return `${provider} / ${shortModel}`;
-        case 'await_input':
-            const keys = config?.keymap?.map((k: any) => k.key).join(', ') || 'No keys';
-            return keys;
-        case 'wait':
-            return `${config?.durationMs || 500}ms`;
-        case 'loop':
-            return `${config?.iterations || 0} iterations`;
-        case 'keypress':
-            return config?.key || 'Key';
-        case 'action_notification':
-            const title = config?.title || 'Output';
-            return title.length > 18 ? title.slice(0, 18) + '...' : title;
-        case 'capture_region':
-        case 'capture_screen':
-            if (config?.width && config?.height) {
-                return `${config.width}×${config.height}`;
-            }
-            return 'Region not set';
-        default:
-            return '';
-    }
-}
-
-// Get detailed tooltip content for complex nodes
-function getTooltipContent(data: WorkflowNodeData): React.ReactNode | null {
-    const config = data.config as any;
-
-    if (data.type === 'await_input' && config?.keymap?.length > 0) {
-        return (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#fff', marginBottom: 2 }}>
-                    Key Bindings
-                </div>
-                {config.keymap.map((k: any, i: number) => (
-                    <div key={i} style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        fontSize: 10,
-                        color: 'rgba(255,255,255,0.8)'
-                    }}>
-                        <span style={{
-                            background: 'rgba(255,255,255,0.1)',
-                            padding: '2px 6px',
-                            borderRadius: 4,
-                            fontFamily: 'monospace',
-                            fontWeight: 600
-                        }}>
-                            {k.key || '?'}
-                        </span>
-                        <span style={{ color: '#ec4899' }}>→</span>
-                        <span>{k.label || k.action}</span>
-                    </div>
-                ))}
-            </div>
-        );
-    }
-
-    if (data.type === 'loop' && config?.children?.length > 0) {
-        return (
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.8)' }}>
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>Loop Steps:</div>
-                {config.children.slice(0, 4).map((c: any, i: number) => (
-                    <div key={i}>• {c.type}</div>
-                ))}
-                {config.children.length > 4 && <div>...and {config.children.length - 4} more</div>}
-            </div>
-        );
-    }
-
-    return null;
+function buildStepForRegistry(data: WorkflowNodeData): WorkflowStep {
+    return {
+        id: data.stepId,
+        type: data.type,
+        name: data.name,
+        config: data.config,
+    } as WorkflowStep;
 }
 
 interface WorkflowNodeProps extends NodeProps {
@@ -142,10 +34,11 @@ function getStatusLabel(status: WorkflowExecutionStatus | null): string {
 
 export function WorkflowNode({ data, selected }: WorkflowNodeProps) {
     const [isHovered, setIsHovered] = useState(false);
-    const Icon = stepIcons[data.type] || Zap;
-    const summary = getNodeSummary(data);
-    const accentColor = stepColors[data.type] || '#6366f1';
-    const tooltipContent = getTooltipContent(data);
+    const stepForRegistry = buildStepForRegistry(data);
+    const Icon = getStepIcon(data.type) || Zap;
+    const summary = getStepSummary(stepForRegistry);
+    const accentColor = getStepColor(data.type);
+    const tooltipContent = getStepTooltip(stepForRegistry);
     const isActive = data.isActive;
     const executionStatus = data.executionStatus;
 

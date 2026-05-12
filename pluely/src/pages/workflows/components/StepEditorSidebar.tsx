@@ -5,33 +5,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { X, Trash2, Camera, Brain, Clock, Repeat, Keyboard, Pause, Send, MousePointerClick, Sparkles } from 'lucide-react';
+import { X, Trash2, MousePointerClick, Sparkles } from 'lucide-react';
 import { HotkeyRecorder } from '@/components';
 import { getProfiles } from '@/lib/storage/model-profiles.storage';
 import { getSuggestedProfileForModel } from '@/config';
-
-// Icon mapping for step types
-const stepIcons: Record<string, React.ElementType> = {
-    capture_screen: Camera,
-    capture_region: Camera,
-    ai_process: Brain,
-    wait: Clock,
-    loop: Repeat,
-    keypress: Keyboard,
-    await_input: Pause,
-    action_notification: Send,
-};
-
-const stepLabels: Record<string, string> = {
-    capture_screen: 'Capture Screen',
-    capture_region: 'Capture Region',
-    ai_process: 'AI Processing',
-    wait: 'Wait',
-    loop: 'Loop',
-    keypress: 'Keypress',
-    await_input: 'Await Input',
-    action_notification: 'Output Action',
-};
+import { getStepLabel } from '@/workflow/core/registry';
+import { getStepIcon } from '@/workflow/ui/registry-ui';
+import { OUTPUT_ACTION_OPTIONS } from '@/lib/workflow/output-actions';
 
 interface StepEditorSidebarProps {
     step: WorkflowStep;
@@ -60,8 +40,8 @@ export function StepEditorSidebar({
     currentWorkflowId,
     isCapturing = false,
 }: StepEditorSidebarProps) {
-    const Icon = stepIcons[step.type] || Brain;
-    const label = stepLabels[step.type] || step.type;
+    const Icon = getStepIcon(step.type) || Sparkles;
+    const label = getStepLabel(step.type);
 
     return (
         <div className="w-80 border-l border-border bg-card flex flex-col h-full">
@@ -407,8 +387,11 @@ export function StepEditorSidebar({
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="Show in Chat Overlay">Show in Chat Overlay</SelectItem>
-                                    <SelectItem value="Copy to Clipboard">Copy to Clipboard</SelectItem>
+                                    {OUTPUT_ACTION_OPTIONS.map((opt) => (
+                                        <SelectItem key={opt.id} value={opt.label}>
+                                            {opt.label}
+                                        </SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
                         </div>

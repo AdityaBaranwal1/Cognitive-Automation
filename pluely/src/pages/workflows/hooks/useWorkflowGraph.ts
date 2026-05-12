@@ -2,6 +2,7 @@ import { useMemo, useCallback, useEffect } from 'react';
 import { Node, Edge, useNodesState, useEdgesState, Connection, addEdge } from '@xyflow/react';
 import { Workflow, WorkflowStep, WorkflowExecutionStatus } from '@/types';
 import { useWorkflow } from '@/contexts';
+import { getStepLabel, getStepSummary } from '@/workflow/core/registry';
 
 // Node data type matching our step types
 export interface WorkflowNodeData {
@@ -25,7 +26,7 @@ function stepsToNodes(steps: WorkflowStep[], activeStepId?: string | null, execu
             stepId: step.id,
             type: step.type,
             config: step.config,
-            label: getStepLabel(step),
+            label: buildNodeLabel(step),
             name: step.name,
             isActive: step.id === activeStepId,
             executionStatus: step.id === activeStepId ? (executionStatus || null) : null,
@@ -47,27 +48,11 @@ function stepsToEdges(steps: WorkflowStep[]): Edge[] {
     return edges;
 }
 
-// Get human-readable label for step
-function getStepLabel(step: WorkflowStep): string {
-    switch (step.type) {
-        case 'capture_screen':
-            return 'Capture Screen';
-        case 'ai_process':
-            return 'AI Process';
-        case 'wait':
-            return `Wait ${(step.config as any)?.duration_ms || 0}ms`;
-        case 'loop':
-            return `Loop ${(step.config as any)?.iterations || 0}x`;
-        case 'await_input':
-            return 'Await Input';
-        case 'keypress':
-            return `Keypress: ${(step.config as any)?.key || '?'}`;
-        case 'action_notification':
-        case 'system_action':
-            return 'Action';
-        default:
-            return step.type;
-    }
+// Build the graph node's display label from the registry: "<Label> · <summary>".
+function buildNodeLabel(step: WorkflowStep): string {
+    const label = getStepLabel(step.type);
+    const summary = getStepSummary(step);
+    return summary && summary !== label ? `${label} · ${summary}` : label;
 }
 
 // Convert nodes/edges back to steps (for saving)

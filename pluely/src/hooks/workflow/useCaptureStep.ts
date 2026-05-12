@@ -3,6 +3,7 @@ import { WorkflowStep, WaitStepConfig, LoopStepConfig, AwaitInputStepConfig } fr
 import { TYPE_PROVIDER } from "@/types/provider.type";
 import { CapturedImage, ExecutionContext } from "./useWorkflowState";
 import { Workflow } from "@/types";
+import { registerAwaitInputKeys } from "@/lib/shortcuts/workflow-shortcuts";
 
 /**
  * Execute a single non-AI step: capture, keypress, wait, loop, await_input.
@@ -101,19 +102,15 @@ async function executeAwaitInput(
     const awaitConfig = step.config as AwaitInputStepConfig;
     let awaitKeyPressed: string | null = null;
 
-    // Register await keys as system hotkeys
-    const registeredAwaitKeys: string[] = [];
-    for (const keyAction of awaitConfig.keymap) {
-        const actionId = `await_${step.id}_${keyAction.key}`;
-        try {
-            await invoke("register_shortcut", { actionId, key: keyAction.key });
-            registeredAwaitKeys.push(actionId);
-        } catch (e) {
-            console.error(`Failed to register await key ${keyAction.key}:`, e);
-        }
-    }
+    // Register await keys as system hotkeys via the shared module.
+    const awaitHandle = await registerAwaitInputKeys(
+        awaitConfig.keymap.map((k) => ({
+            key: k.key,
+            actionId: `await_${step.id}_${k.key}`,
+        })),
+    );
 
-    // Register temporary callbacks
+    // Register temporary JS-side callbacks
     const cleanupFns: (() => void)[] = [];
     for (const keyAction of awaitConfig.keymap) {
         const callbackId = `await_${step.id}_${keyAction.key}`;
@@ -170,13 +167,7 @@ async function executeAwaitInput(
     // Cleanup
     cleanupFns.forEach(fn => fn());
     context.stepOutputs.push(`[Await Input completed]`);
-    for (const actionId of registeredAwaitKeys) {
-        try {
-            await invoke("unregister_shortcut", { actionId });
-        } catch (e) {
-            console.error(`Failed to unregister await key ${actionId}:`, e);
-        }
-    }
+    await awaitHandle.dispose();
 
     return null;
 }
