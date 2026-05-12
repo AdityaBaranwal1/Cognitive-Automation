@@ -67,9 +67,12 @@ export const executeCaptureStep = async (
     }
     else if (step.type === "loop") {
         const loopConfig = step.config as LoopStepConfig;
+        // v2 uses `body`; `children` is the deprecated v1 alias kept for
+        // workflows that have not been re-saved through the migrator yet.
+        const children = loopConfig.body ?? loopConfig.children ?? [];
         for (let i = 0; i < loopConfig.iterations; i++) {
             if (context.shouldStop) break;
-            for (const childStep of loopConfig.children || []) {
+            for (const childStep of children) {
                 if (context.shouldStop) break;
                 await executeStepFn(childStep, context, allAiProviders, defaultSystemPrompt);
             }

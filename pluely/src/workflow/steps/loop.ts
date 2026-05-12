@@ -10,7 +10,7 @@ registerStep<LoopStepConfig>({
     label: "Loop",
     category: "flow",
     sideEffects: [],
-    defaultConfig: () => ({ iterations: 3, children: [] }),
+    defaultConfig: () => ({ iterations: 3, body: [] }),
     summary: (c) => `${c?.iterations ?? 0} iterations`,
 });
 
@@ -19,16 +19,17 @@ registerStepUI<LoopStepConfig>({
     icon: Repeat,
     color: "#3b82f6",
     tooltip: (config): ReactNode | null => {
-        if (!config?.children?.length) return null;
-        const head = config.children.slice(0, 4).map((c: WorkflowStep, i: number) =>
+        const children = config?.body ?? config?.children ?? [];
+        if (!children.length) return null;
+        const head = children.slice(0, 4).map((c: WorkflowStep, i: number) =>
             createElement("div", { key: i }, `• ${c.type}`),
         );
         const tail =
-            config.children.length > 4
+            children.length > 4
                 ? createElement(
                       "div",
                       { key: "more" },
-                      `…and ${config.children.length - 4} more`,
+                      `…and ${children.length - 4} more`,
                   )
                 : null;
         return createElement(

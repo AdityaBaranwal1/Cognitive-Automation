@@ -86,4 +86,16 @@ describe("migrate(v1)", () => {
         expect(keys[0]).toBe("wait_a_bit");
         expect(keys[1]).toBe("wait_a_bit_2");
     });
+
+    it("prefixes leading-digit slugs with underscore for expression safety", () => {
+        const result = migrate({
+            id: "x",
+            steps: [
+                { id: "1", type: "wait", name: "1st step", config: { durationMs: 100 } },
+            ],
+        });
+        expect(result.steps[0].key).toBe("_1st_step");
+        // Result must match the expression-binding regex.
+        expect(result.steps[0].key).toMatch(/^[a-zA-Z_][a-zA-Z0-9_]*$/);
+    });
 });
