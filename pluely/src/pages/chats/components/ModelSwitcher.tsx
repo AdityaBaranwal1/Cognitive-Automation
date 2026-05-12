@@ -13,12 +13,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { ChevronDown, RefreshCwIcon, Loader2Icon, SparklesIcon, BrainIcon, CheckIcon } from "lucide-react";
 import { useConfig } from "@/contexts";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import curl2Json from "@bany/curl-to-json";
 import { getProfiles } from "@/lib/storage/model-profiles.storage";
 import { getSuggestedProfileForModel } from "@/config";
-import { getApiKey } from "@/lib/keychain";
-import { getSavedProviderById } from "@/lib/storage/saved-providers.storage";
+import { listModels } from "@/lib/providers/model-discovery";
+import curl2Json from "@bany/curl-to-json";
 
 interface ModelSwitcherProps {
     currentProviderId?: string;
@@ -85,84 +83,9 @@ export const ModelSwitcher = ({
 
     // Fetch models for a specific provider
     const fetchModelsForProvider = async (providerId: string): Promise<string[]> => {
-        try {
-            const provider = allAiProviders?.find((p) => p?.id === providerId);
-            if (!provider) return [];
-
-            let baseUrl = "";
-            let apiKey = "";
-
-            try {
-                const curlJson = curl2Json(provider.curl);
-                const url = curlJson.url;
-
-                // Extract Base URL
-                if (url.includes("/chat/completions")) {
-                    baseUrl = url.split("/chat/completions")[0];
-                } else if (url.includes("/completions")) {
-                    baseUrl = url.split("/completions")[0];
-                } else {
-                    const urlObj = new URL(url);
-                    baseUrl = `${urlObj.protocol}//${urlObj.host}/v1`;
-                }
-
-                // Extract API Key from variables first
-                apiKey = provider.variables?.API_KEY || provider.variables?.api_key || "";
-
-                // Keychain fallback for SavedProviderConfig-based providers
-                if (!apiKey) {
-                    const keychainKey = await getApiKey(providerId);
-                    if (keychainKey) apiKey = keychainKey;
-                }
-                if (!apiKey) {
-                    const savedConfig = getSavedProviderById(providerId);
-                    if (savedConfig) {
-                        const presetKey = await getApiKey(savedConfig.presetId);
-                        if (presetKey) apiKey = presetKey;
-                    }
-                }
-
-                if (!apiKey && curlJson.header) {
-                    const authHeader = curlJson.header["Authorization"];
-                    if (authHeader && authHeader.includes("Bearer ")) {
-                        const parts = authHeader.split("Bearer ");
-                        if (parts.length > 1 && !parts[1].includes("{{")) {
-                            apiKey = parts[1];
-                        }
-                    }
-                }
-            } catch (e) {
-                console.warn("Failed to parse cURL for model fetching", e);
-                if (providerId === "lm-studio") baseUrl = "http://localhost:1234/v1";
-            }
-
-            if (!baseUrl) return [];
-
-            const modelsUrl = `${baseUrl}/models`;
-            const headers: Record<string, string> = {
-                "Content-Type": "application/json",
-            };
-
-            if (apiKey && !apiKey.includes("{{")) {
-                headers["Authorization"] = `Bearer ${apiKey}`;
-            }
-
-            const isLocal = modelsUrl.includes("localhost") || modelsUrl.includes("127.0.0.1");
-            const fetchFn = isLocal ? fetch : tauriFetch;
-
-            const response = await fetchFn(modelsUrl, {
-                method: "GET",
-                headers,
-            });
-
-            if (!response.ok) return [];
-
-            const data = await response.json();
-            return data.data?.map((m: any) => m.id) || [];
-        } catch (error) {
-            console.error("Error fetching models:", error);
-            return [];
-        }
+        const provider = allAiProviders?.find((p) => p?.id === providerId);
+        if (!provider) return [];
+        return listModels(providerId, provider);
     };
 
     // Load models when dropdown opens

@@ -1,5 +1,5 @@
 import type { SavedProviderConfig } from "@/types/provider-preset.type";
-import { invoke } from "@tauri-apps/api/core";
+import { persistAndSync } from "./persistent-state";
 
 const STORAGE_KEY = "saved_provider_configs";
 
@@ -17,9 +17,7 @@ export function getSavedProviders(): SavedProviderConfig[] {
 }
 
 function persist(configs: SavedProviderConfig[]): void {
-  const data = JSON.stringify(configs);
-  localStorage.setItem(STORAGE_KEY, data);
-  invoke("save_persistent_data", { key: STORAGE_KEY, data }).catch(() => {});
+  persistAndSync(STORAGE_KEY, configs);
 }
 
 export function addSavedProvider(

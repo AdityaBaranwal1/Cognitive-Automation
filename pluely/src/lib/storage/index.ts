@@ -5,3 +5,4 @@ export * from "./customizable.storage";
 export * from "./shortcuts.storage";
 export * from "./response-settings.storage";
 export * from "./model-profiles.storage";
+export * from "./persistent-state";

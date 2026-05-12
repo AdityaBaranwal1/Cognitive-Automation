@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { STORAGE_KEYS } from "@/config/";
+import { persistAndSync } from "@/lib/storage";
+import { useTauriEvent } from "@/lib/tauri/use-event";
 
 type Theme = "dark" | "light" | "system";
 
@@ -57,8 +57,9 @@ export function ThemeProvider({
   }, []);
 
   // --- Tauri push-based cross-window sync ---
-  useEffect(() => {
-    const unlisten = listen<string>("data-updated", (event) => {
+  useTauriEvent<string>(
+    "data-updated",
+    (event) => {
       const key = event.payload;
       if (recentlyWrittenKeys.current.has(key)) return;
       if (key === STORAGE_KEYS.TRANSPARENCY) {
@@ -69,9 +70,9 @@ export function ThemeProvider({
         const stored = localStorage.getItem(storageKey);
         if (stored) setTheme(stored as Theme);
       }
-    });
-    return () => { unlisten.then((fn) => fn()); };
-  }, [storageKey]);
+    },
+    [storageKey],
+  );
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -123,19 +124,13 @@ export function ThemeProvider({
 
   const onSetTransparency = useCallback((t: number) => {
     const val = t.toString();
-    localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, val);
     setTransparency(t);
-    recentlyWrittenKeys.current.add(STORAGE_KEYS.TRANSPARENCY);
-    invoke("save_persistent_data", { key: STORAGE_KEYS.TRANSPARENCY, data: val }).catch(console.error);
-    setTimeout(() => recentlyWrittenKeys.current.delete(STORAGE_KEYS.TRANSPARENCY), 500);
+    persistAndSync(STORAGE_KEYS.TRANSPARENCY, val, { selfEchoGuard: recentlyWrittenKeys });
   }, []);
 
   const handleSetTheme = useCallback((newTheme: Theme) => {
-    localStorage.setItem(storageKey, newTheme);
     setTheme(newTheme);
-    recentlyWrittenKeys.current.add(storageKey);
-    invoke("save_persistent_data", { key: storageKey, data: newTheme }).catch(console.error);
-    setTimeout(() => recentlyWrittenKeys.current.delete(storageKey), 500);
+    persistAndSync(storageKey, newTheme, { selfEchoGuard: recentlyWrittenKeys });
   }, [storageKey]);
 
   const value = useMemo(() => ({

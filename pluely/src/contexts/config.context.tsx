@@ -5,6 +5,8 @@ import {
     STORAGE_KEYS,
 } from "@/config";
 import { getPlatform, safeLocalStorage } from "@/lib";
+import { persistAndSync } from "@/lib/storage";
+import { useTauriEvent, useTauriEvents } from "@/lib/tauri/use-event";
 import { migrateKeysToKeychain } from "@/lib/keychain/migration.service";
 import { PROVIDER_PRESETS } from "@/config/provider-presets.constants";
 import { presetToProvider } from "@/lib/functions/preset-to-curl.function";
@@ -25,7 +27,6 @@ import {
 import { IConfigContextType, ScreenshotConfig, TYPE_PROVIDER } from "@/types";
 import curl2Json from "@bany/curl-to-json";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { enable, disable } from "@tauri-apps/plugin-autostart";
 import {
@@ -356,71 +357,59 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
     }, []);
 
     // Listen for app icon hide/show events when window is toggled
-    useEffect(() => {
-        const handleAppIconVisibility = async (isVisible: boolean) => {
-            try {
-                await invoke("set_app_icon_visibility", { visible: isVisible });
-            } catch (error) {
-                console.error("Failed to set app icon visibility:", error);
-            }
-        };
-
-        const unlistenHide = listen("handle-app-icon-on-hide", async () => {
-            const currentState = getCustomizableState();
-            // Only hide app icon if user has set it to hide mode
-            if (!currentState.appIcon.isVisible) {
-                await handleAppIconVisibility(false);
-            }
-        });
-
-        const unlistenShow = listen("handle-app-icon-on-show", async () => {
-            // Always show app icon when window is shown, regardless of user setting
-            await handleAppIconVisibility(true);
-        });
-
-        return () => {
-            unlistenHide.then((fn) => fn());
-            unlistenShow.then((fn) => fn());
-        };
-    }, []);
+    const handleAppIconVisibility = async (isVisible: boolean) => {
+        try {
+            await invoke("set_app_icon_visibility", { visible: isVisible });
+        } catch (error) {
+            console.error("Failed to set app icon visibility:", error);
+        }
+    };
+    useTauriEvents([
+        {
+            name: "handle-app-icon-on-hide",
+            handler: async () => {
+                const currentState = getCustomizableState();
+                if (!currentState.appIcon.isVisible) {
+                    await handleAppIconVisibility(false);
+                }
+            },
+        },
+        {
+            name: "handle-app-icon-on-show",
+            handler: async () => {
+                await handleAppIconVisibility(true);
+            },
+        },
+    ]);
 
     // --- SINGLE SOURCE OF TRUTH: Tauri push-based cross-window sync ---
     // Replaces the old `window.addEventListener("storage")` which had TOCTOU races.
     // The Rust backend emits "data-updated" after every persistent write, so both
     // windows reload deterministically without localStorage race conditions.
-    useEffect(() => {
-        const unlisten = listen<string>("data-updated", (event) => {
-            const key = event.payload;
-            // Skip self-echo: ignore events for keys this window just wrote
-            if (recentlyWrittenKeys.current.has(key)) return;
-            if (
-                key === STORAGE_KEYS.CUSTOM_AI_PROVIDERS ||
-                key === STORAGE_KEYS.SELECTED_AI_PROVIDER ||
-                key === STORAGE_KEYS.CUSTOM_SPEECH_PROVIDERS ||
-                key === STORAGE_KEYS.SELECTED_STT_PROVIDER ||
-                key === STORAGE_KEYS.SYSTEM_PROMPT ||
-                key === STORAGE_KEYS.SCREENSHOT_CONFIG ||
-                key === STORAGE_KEYS.CUSTOMIZABLE ||
-                key === STORAGE_KEYS.PROVIDER_CONFIGS ||
-                key === "saved_provider_configs"
-            ) {
-                loadData();
-            }
-        });
-        return () => {
-            unlisten.then((fn) => fn());
-        };
-    }, []);
+    useTauriEvent<string>("data-updated", (event) => {
+        const key = event.payload;
+        // Skip self-echo: ignore events for keys this window just wrote
+        if (recentlyWrittenKeys.current.has(key)) return;
+        if (
+            key === STORAGE_KEYS.CUSTOM_AI_PROVIDERS ||
+            key === STORAGE_KEYS.SELECTED_AI_PROVIDER ||
+            key === STORAGE_KEYS.CUSTOM_SPEECH_PROVIDERS ||
+            key === STORAGE_KEYS.SELECTED_STT_PROVIDER ||
+            key === STORAGE_KEYS.SYSTEM_PROMPT ||
+            key === STORAGE_KEYS.SCREENSHOT_CONFIG ||
+            key === STORAGE_KEYS.CUSTOMIZABLE ||
+            key === STORAGE_KEYS.PROVIDER_CONFIGS ||
+            key === "saved_provider_configs"
+        ) {
+            loadData();
+        }
+    });
 
     // Sync selected AI to localStorage + cross-window push
     useEffect(() => {
         if (isInitialMountAI.current) { isInitialMountAI.current = false; return; }
         if (selectedAIProvider.provider) {
-            const data = JSON.stringify(selectedAIProvider);
-            safeLocalStorage.setItem(STORAGE_KEYS.SELECTED_AI_PROVIDER, data);
-            recentlyWrittenKeys.current.add(STORAGE_KEYS.SELECTED_AI_PROVIDER);
-            invoke("save_persistent_data", { key: STORAGE_KEYS.SELECTED_AI_PROVIDER, data }).catch(console.error);
-            setTimeout(() => recentlyWrittenKeys.current.delete(STORAGE_KEYS.SELECTED_AI_PROVIDER), 500);
+            persistAndSync(STORAGE_KEYS.SELECTED_AI_PROVIDER, selectedAIProvider, { selfEchoGuard: recentlyWrittenKeys });
         }
     }, [selectedAIProvider]);
 
@@ -428,22 +417,14 @@ export const ConfigProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => {
         if (isInitialMountSTT.current) { isInitialMountSTT.current = false; return; }
         if (selectedSttProvider.provider) {
-            const data = JSON.stringify(selectedSttProvider);
-            safeLocalStorage.setItem(STORAGE_KEYS.SELECTED_STT_PROVIDER, data);
-            recentlyWrittenKeys.current.add(STORAGE_KEYS.SELECTED_STT_PROVIDER);
-            invoke("save_persistent_data", { key: STORAGE_KEYS.SELECTED_STT_PROVIDER, data }).catch(console.error);
-            setTimeout(() => recentlyWrittenKeys.current.delete(STORAGE_KEYS.SELECTED_STT_PROVIDER), 500);
+            persistAndSync(STORAGE_KEYS.SELECTED_STT_PROVIDER, selectedSttProvider, { selfEchoGuard: recentlyWrittenKeys });
         }
     }, [selectedSttProvider]);
 
     // Sync provider configs to localStorage + cross-window push
     useEffect(() => {
         if (isInitialMountConfigs.current) { isInitialMountConfigs.current = false; return; }
-        const data = JSON.stringify(providerConfigs);
-        safeLocalStorage.setItem(STORAGE_KEYS.PROVIDER_CONFIGS, data);
-        recentlyWrittenKeys.current.add(STORAGE_KEYS.PROVIDER_CONFIGS);
-        invoke("save_persistent_data", { key: STORAGE_KEYS.PROVIDER_CONFIGS, data }).catch(console.error);
-        setTimeout(() => recentlyWrittenKeys.current.delete(STORAGE_KEYS.PROVIDER_CONFIGS), 500);
+        persistAndSync(STORAGE_KEYS.PROVIDER_CONFIGS, providerConfigs, { selfEchoGuard: recentlyWrittenKeys });
     }, [providerConfigs]);
 
     // Computed all AI providers (memoized to prevent cascading re-renders)

@@ -1,9 +1,9 @@
 import { STORAGE_KEYS } from "@/config";
 import { safeLocalStorage } from "@/lib";
-import { getShortcutsConfig } from "@/lib/storage";
+import { getShortcutsConfig, persistAndSync } from "@/lib/storage";
+import { useTauriEvent } from "@/lib/tauri/use-event";
 import { IWorkflowContextType, Workflow, WorkflowExecution } from "@/types";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
     ReactNode,
@@ -39,37 +39,29 @@ export const WorkflowProvider = ({ children }: { children: ReactNode }) => {
 
     // --- SINGLE SOURCE OF TRUTH: Tauri push-based cross-window sync ---
     // Replaces old `window.addEventListener("storage")` which had TOCTOU races.
-    useEffect(() => {
-        const unlisten = listen<string>("data-updated", (event) => {
-            if (event.payload === STORAGE_KEYS.WORKFLOWS) {
-                const savedWorkflows = safeLocalStorage.getItem(STORAGE_KEYS.WORKFLOWS);
-                if (savedWorkflows) {
-                    try {
-                        setWorkflows(JSON.parse(savedWorkflows));
-                    } catch (e) {
-                        console.error("Failed to parse workflows from data-updated event", e);
-                    }
+    useTauriEvent<string>("data-updated", (event) => {
+        if (event.payload === STORAGE_KEYS.WORKFLOWS) {
+            const savedWorkflows = safeLocalStorage.getItem(STORAGE_KEYS.WORKFLOWS);
+            if (savedWorkflows) {
+                try {
+                    setWorkflows(JSON.parse(savedWorkflows));
+                } catch (e) {
+                    console.error("Failed to parse workflows from data-updated event", e);
                 }
             }
-        });
-        return () => {
-            unlisten.then((fn) => fn());
-        };
-    }, []);
+        }
+    });
 
-    // Listen for cross-window workflow execution events (dashboard receives from main)
-    useEffect(() => {
-        const currentWindow = getCurrentWindow();
-        if (currentWindow.label === "main") return; // Main sets state directly
-
-        const unlisten = listen<WorkflowExecution | null>("workflow-execution-update", (event) => {
-            setWorkflowExecution(event.payload);
-        });
-
-        return () => {
-            unlisten.then(f => f());
-        };
-    }, []);
+    // Listen for cross-window workflow execution events (dashboard receives from main).
+    // Main window sets state directly via setWorkflowExecution — only non-main subscribes.
+    const isMainWindow = getCurrentWindow().label === "main";
+    useTauriEvent<WorkflowExecution | null>(
+        "workflow-execution-update",
+        (event) => {
+            if (!isMainWindow) setWorkflowExecution(event.payload);
+        },
+        [isMainWindow],
+    );
 
     // --- HOTKEY OPTIMIZATION START ---
 
@@ -151,12 +143,7 @@ export const WorkflowProvider = ({ children }: { children: ReactNode }) => {
     const saveWorkflow = async (workflow: Workflow) => {
         const newWorkflows = [...workflows, workflow];
         setWorkflows(newWorkflows);
-        const json = JSON.stringify(newWorkflows);
-        safeLocalStorage.setItem(STORAGE_KEYS.WORKFLOWS, json);
-        // Push to Rust for cross-window sync
-        invoke("save_persistent_data", { key: STORAGE_KEYS.WORKFLOWS, data: json }).catch(
-            (e) => console.error("Failed to sync workflow save:", e)
-        );
+        await persistAndSync(STORAGE_KEYS.WORKFLOWS, newWorkflows);
     };
 
     const updateWorkflow = async (workflow: Workflow) => {
@@ -164,23 +151,13 @@ export const WorkflowProvider = ({ children }: { children: ReactNode }) => {
             w.id === workflow.id ? workflow : w
         );
         setWorkflows(newWorkflows);
-        const json = JSON.stringify(newWorkflows);
-        safeLocalStorage.setItem(STORAGE_KEYS.WORKFLOWS, json);
-        // Push to Rust for cross-window sync
-        invoke("save_persistent_data", { key: STORAGE_KEYS.WORKFLOWS, data: json }).catch(
-            (e) => console.error("Failed to sync workflow update:", e)
-        );
+        await persistAndSync(STORAGE_KEYS.WORKFLOWS, newWorkflows);
     };
 
     const deleteWorkflow = async (id: string) => {
         const newWorkflows = workflows.filter((w) => w.id !== id);
         setWorkflows(newWorkflows);
-        const json = JSON.stringify(newWorkflows);
-        safeLocalStorage.setItem(STORAGE_KEYS.WORKFLOWS, json);
-        // Push to Rust for cross-window sync
-        invoke("save_persistent_data", { key: STORAGE_KEYS.WORKFLOWS, data: json }).catch(
-            (e) => console.error("Failed to sync workflow delete:", e)
-        );
+        await persistAndSync(STORAGE_KEYS.WORKFLOWS, newWorkflows);
     };
 
     const value: IWorkflowContextType = {

@@ -6,6 +6,7 @@ import {
   deleteAllConversations,
   DOWNLOAD_SUCCESS_DISPLAY_MS,
 } from "@/lib";
+import { persistAndSync } from "@/lib/storage";
 import { ChatConversation, ConversationSummary } from "@/types/completion";
 import { generateConversationMarkdown, generateFilename } from "@/lib/functions/conversation.function";
 
@@ -154,9 +155,7 @@ export function useHistory(): UseHistoryReturn {
   };
 
   const handleAttachToOverlay = (conversationId: string) => {
-    const data = JSON.stringify({ id: conversationId, timestamp: Date.now() });
-    localStorage.setItem("app-conversation-selected", data);
-    invoke("save_persistent_data", { key: "app-conversation-selected", data }).catch(console.error);
+    persistAndSync("app-conversation-selected", { id: conversationId, timestamp: Date.now() });
     setIsAttached(true);
     setTimeout(() => {
       setIsAttached(false);

@@ -9,7 +9,7 @@ import {
 import type { SavedProviderConfig } from "@/types/provider-preset.type";
 import { StarIcon, TrashIcon, ServerIcon } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { useTauriEvent } from "@/lib/tauri/use-event";
 
 export const AllProviders = () => {
   const [configs, setConfigs] = useState<SavedProviderConfig[]>([]);
@@ -20,13 +20,17 @@ export const AllProviders = () => {
 
   useEffect(() => {
     loadConfigs();
-    const unlisten = listen<string>("data-updated", (event) => {
+  }, [loadConfigs]);
+
+  useTauriEvent<string>(
+    "data-updated",
+    (event) => {
       if (event.payload === "saved_provider_configs") {
         loadConfigs();
       }
-    });
-    return () => { unlisten.then((fn) => fn()); };
-  }, [loadConfigs]);
+    },
+    [loadConfigs],
+  );
 
   const handleSetDefault = (id: string) => {
     setDefaultProvider(id);

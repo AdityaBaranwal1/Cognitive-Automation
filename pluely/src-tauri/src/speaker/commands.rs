@@ -205,7 +205,7 @@ async fn run_vad_capture(
                     // Include pre-speech buffer for natural sound
                     speech_buffer.extend(pre_speech.drain(..));
 
-                    let _ = app.emit("speech-start", ());
+                    let _ = app.emit_to("main", "speech-start", ());
                 }
 
                 speech_chunks += 1;
@@ -216,7 +216,7 @@ async fn run_vad_capture(
                 if speech_buffer.len() > max_samples {
                     let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
                     if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
-                        let _ = app.emit("speech-detected", b64);
+                        let _ = app.emit_to("main", "speech-detected", b64);
                     }
                     speech_buffer.clear();
                     in_speech = false;
@@ -247,7 +247,7 @@ async fn run_vad_capture(
                             // Emit complete speech segment
                             let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
                             if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
-                                let _ = app.emit("speech-detected", b64);
+                                let _ = app.emit_to("main", "speech-detected", b64);
                             } else {
                                 error!("Failed to encode speech to WAV");
                                 let _ = app.emit("audio-encoding-error", "Failed to encode speech");
@@ -365,7 +365,7 @@ async fn run_continuous_capture(
 
         match samples_to_wav_b64(sr, &cleaned_audio) {
             Ok(b64) => {
-                let _ = app.emit("speech-detected", b64);
+                let _ = app.emit_to("main", "speech-detected", b64);
             }
             Err(e) => {
                 error!("Failed to encode continuous audio: {}", e);

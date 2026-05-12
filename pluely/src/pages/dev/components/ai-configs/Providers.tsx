@@ -4,7 +4,7 @@ import { UseSettingsReturn } from "@/types";
 import curl2Json, { ResultJSON } from "@bany/curl-to-json";
 import { KeyIcon, TrashIcon, RefreshCwIcon, Loader2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { listModels } from "@/lib/providers/model-discovery";
 import { saveApiKey } from "@/lib/keychain";
 
 export const Providers = ({
@@ -46,86 +46,19 @@ export const Providers = ({
     return !getApiKeyValue().trim();
   };
 
-  // Fetch available models from the provider's API
+  // Fetch available models from the provider's API.
+  // Note: this passes `providerId` (the discovery target), not `selectedAIProvider.provider`,
+  // fixing the latent bug that previously consulted the keychain under the wrong id.
   const fetchModelsForProvider = async (providerId: string) => {
     setIsLoadingModels(true);
     setFetchedModels([]);
-
     try {
       const provider = allAiProviders?.find(p => p?.id === providerId);
       if (!provider) throw new Error("Provider not found");
-
-      let curlCommand = provider.curl;
-      let baseUrl = "";
-      let apiKey = "";
-
-      // Parse cURL to get URL and Headers
-      try {
-        const curlJson = curl2Json(curlCommand);
-        const url = curlJson.url;
-
-        // Extract Base URL
-        if (url.includes("/chat/completions")) {
-          baseUrl = url.split("/chat/completions")[0];
-        } else if (url.includes("/completions")) {
-          baseUrl = url.split("/completions")[0];
-        } else {
-          const urlObj = new URL(url);
-          baseUrl = `${urlObj.protocol}//${urlObj.host}/v1`;
-        }
-
-        // Extract API Key from variables first
-        apiKey = provider.variables?.API_KEY || provider.variables?.api_key || "";
-
-        // Keychain fallback for SavedProviderConfig-based providers
-        if (!apiKey) {
-          const { getApiKey } = await import("@/lib/keychain");
-          const keychainKey = await getApiKey(selectedAIProvider.provider);
-          if (keychainKey) apiKey = keychainKey;
-        }
-
-        if (!apiKey && curlJson.header) {
-          const authHeader = curlJson.header["Authorization"];
-          if (authHeader && authHeader.includes("Bearer ")) {
-            const parts = authHeader.split("Bearer ");
-            if (parts.length > 1 && !parts[1].includes("{{")) {
-              apiKey = parts[1];
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("Failed to parse cURL for model fetching", e);
-        if (providerId === "lm-studio") baseUrl = "http://localhost:1234/v1";
-      }
-
-      if (!baseUrl) throw new Error("Could not determine base URL");
-
-      const modelsUrl = `${baseUrl}/models`;
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json"
-      };
-
-      if (apiKey && !apiKey.includes("{{")) {
-        headers["Authorization"] = `Bearer ${apiKey}`;
-      }
-
-      const isLocal = modelsUrl.includes("localhost") || modelsUrl.includes("127.0.0.1");
-      const fetchFn = isLocal ? fetch : tauriFetch;
-
-      const response = await fetchFn(modelsUrl, {
-        method: "GET",
-        headers
-      });
-
-      if (!response.ok) throw new Error("Failed to fetch models");
-
-      const data = await response.json();
-      const models = data.data?.map((m: any) => m.id) || [];
-
+      const models = await listModels(providerId, provider);
       setFetchedModels(models);
     } catch (error) {
       console.error("Error fetching models:", error);
-      // Clear models on error - user can still type manually
       setFetchedModels([]);
     } finally {
       setIsLoadingModels(false);

@@ -31,8 +31,7 @@ import {
     SaveIcon,
     RefreshCwIcon,
 } from "lucide-react";
-import curl2Json from "@bany/curl-to-json";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { listModels } from "@/lib/providers/model-discovery";
 
 /**
  * Model Manager component for testing and configuring model capabilities.
@@ -88,66 +87,10 @@ export const ModelManager = () => {
         try {
             const provider = allAiProviders?.find((p) => p?.id === providerId);
             if (!provider) return;
-
-            let baseUrl = "";
-            let apiKey = "";
-
-            try {
-                const curlJson = curl2Json(provider.curl);
-                const url = curlJson.url;
-
-                // Extract Base URL
-                if (url.includes("/chat/completions")) {
-                    baseUrl = url.split("/chat/completions")[0];
-                } else if (url.includes("/completions")) {
-                    baseUrl = url.split("/completions")[0];
-                } else {
-                    const urlObj = new URL(url);
-                    baseUrl = `${urlObj.protocol}//${urlObj.host}/v1`;
-                }
-
-                // Extract API Key from variables
-                apiKey = provider.variables?.API_KEY || provider.variables?.api_key || "";
-
-                // Fallback: extract API key from cURL Authorization header
-                if (!apiKey && curlJson.header) {
-                    const authHeader = curlJson.header["Authorization"];
-                    if (authHeader && authHeader.includes("Bearer ")) {
-                        const parts = authHeader.split("Bearer ");
-                        if (parts.length > 1 && !parts[1].includes("{{")) {
-                            apiKey = parts[1];
-                        }
-                    }
-                }
-            } catch (e) {
-                console.warn("Failed to parse cURL for model fetching", e);
-                if (providerId === "lm-studio") baseUrl = "http://localhost:1234/v1";
-            }
-
-            if (!baseUrl) return;
-
-            const modelsUrl = `${baseUrl}/models`;
-            const headers: Record<string, string> = { "Content-Type": "application/json" };
-            if (apiKey && !apiKey.includes("{{")) {
-                headers["Authorization"] = `Bearer ${apiKey}`;
-            }
-
-            console.log(`[ModelManager] Fetching models from: ${modelsUrl}`);
-
-            const isLocal = modelsUrl.includes("localhost") || modelsUrl.includes("127.0.0.1");
-            const fetchFn = isLocal ? fetch : tauriFetch;
-
-            const response = await fetchFn(modelsUrl, { method: "GET", headers });
-            if (response.ok) {
-                const data = await response.json();
-                const models = data.data?.map((m: any) => m.id) || [];
-                console.log(`[ModelManager] Fetched ${models.length} models`);
-                setFetchedModels(models);
-                if (models.length > 0 && !selectedModel) {
-                    setSelectedModel(models[0]);
-                }
-            } else {
-                console.error(`[ModelManager] Failed to fetch models: ${response.status}`);
+            const models = await listModels(providerId, provider);
+            setFetchedModels(models);
+            if (models.length > 0 && !selectedModel) {
+                setSelectedModel(models[0]);
             }
         } catch (error) {
             console.error("Error fetching models:", error);

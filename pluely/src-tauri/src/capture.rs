@@ -271,8 +271,8 @@ pub async fn capture_selected_area(
     // Close overlay windows
     destroy_overlay_windows(&app);
 
-    // Emit event with base64 data
-    app.emit("captured-selection", &base64_str)
+    // Emit event with base64 data — main window only (do not broadcast image bytes)
+    app.emit_to("main", "captured-selection", &base64_str)
         .map_err(|e| format!("Failed to emit captured-selection event: {}", e))?;
 
     // Reset overlay state

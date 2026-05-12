@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useConfig, useWorkflow, useSystemPrompts } from "@/contexts";
 import { Workflow, WorkflowStep, AIStepConfig, CaptureStepConfig } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -10,11 +10,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, MousePointerClick, RefreshCw, Loader2, List, GitBranch } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { useTauriEvent } from "@/lib/tauri/use-event";
 import { PageLayout } from "@/layouts";
 import { HotkeyRecorder } from "@/components";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import curl2Json from "@bany/curl-to-json";
+import { listModels } from "@/lib/providers/model-discovery";
 import { WorkflowCanvas } from "./components/WorkflowCanvas";
 import { StepEditorSidebar } from "./components/StepEditorSidebar";
 
@@ -35,15 +34,9 @@ const WorkflowEditor = () => {
     const selectedStepIndex = selectedWorkflow?.steps.findIndex(s => s.id === selectedStepId) ?? -1;
 
     // Listen for capture events
-    useEffect(() => {
-        const unlisten = listen("captured-selection", (_event) => {
-            // Placeholder for future event handling
-        });
-
-        return () => {
-            unlisten.then(f => f());
-        };
-    }, []);
+    useTauriEvent("captured-selection", () => {
+        // Placeholder for future event handling
+    });
 
     const handleCreateWorkflow = () => {
         const newWorkflow: Workflow = {
@@ -178,87 +171,15 @@ const WorkflowEditor = () => {
         try {
             const provider = allAiProviders.find(p => p.id === providerId);
             if (!provider) throw new Error("Provider not found");
-
-            // Try to deduce the models endpoint from the chat endpoint
-            let curlCommand = provider.curl;
-            let baseUrl = "";
-            let apiKey = "";
-
-            // Parse cURL to get URL and Headers (for Key)
-            try {
-                const curlJson = curl2Json(curlCommand);
-                const url = curlJson.url;
-
-                // Extract Base URL (remove /chat/completions or similar)
-                // Common patterns: /v1/chat/completions -> /v1/models
-                if (url.includes("/chat/completions")) {
-                    baseUrl = url.split("/chat/completions")[0];
-                } else if (url.includes("/completions")) {
-                    baseUrl = url.split("/completions")[0];
-                } else {
-                    // Fallback: try to just use the domain + /v1/models
-                    const urlObj = new URL(url);
-                    baseUrl = `${urlObj.protocol}//${urlObj.host}/v1`;
-                }
-
-                // Extract API Key from variables first
-                apiKey = provider.variables?.API_KEY || "";
-
-                // Keychain fallback for SavedProviderConfig-based providers
-                if (!apiKey) {
-                    const { getApiKey } = await import("@/lib/keychain");
-                    const keychainKey = await getApiKey(providerId);
-                    if (keychainKey) apiKey = keychainKey;
-                }
-
-                // If not in variables or keychain, check if it's hardcoded in the header
-                if (!apiKey && curlJson.header) {
-                    const authHeader = curlJson.header["Authorization"];
-                    if (authHeader && authHeader.includes("Bearer ")) {
-                        const parts = authHeader.split("Bearer ");
-                        if (parts.length > 1 && !parts[1].includes("{{")) {
-                            apiKey = parts[1];
-                        }
-                    }
-                }
-            } catch (e) {
-                console.warn("Failed to parse cURL for model fetching", e);
-                // Fallback for standard providers if cURL parsing fails
-                if (providerId === "openai") baseUrl = "https://api.openai.com/v1";
-                if (providerId === "lm-studio") baseUrl = "http://localhost:1234/v1";
+            const models = await listModels(providerId, provider);
+            if (models.length > 0) {
+                setFetchedModels(prev => ({ ...prev, [providerId]: models }));
+            } else {
+                // Preserve legacy fallback list for this consumer when discovery yields nothing
+                setFetchedModels(prev => ({ ...prev, [providerId]: ["gpt-4o", "gpt-3.5-turbo", "claude-3-opus", "qwen2-vl-2b-instruct"] }));
             }
-
-            if (!baseUrl) throw new Error("Could not determine base URL");
-
-            const modelsUrl = `${baseUrl}/models`;
-
-            // Prepare headers
-            const headers: Record<string, string> = {
-                "Content-Type": "application/json"
-            };
-
-            if (apiKey && !apiKey.includes("{{")) {
-                headers["Authorization"] = `Bearer ${apiKey}`;
-            }
-
-            const isLocal = modelsUrl.includes("localhost") || modelsUrl.includes("127.0.0.1");
-            const fetchFn = isLocal ? fetch : tauriFetch;
-
-            const response = await fetchFn(modelsUrl, {
-                method: "GET",
-                headers
-            });
-
-            if (!response.ok) throw new Error("Failed to fetch models");
-
-            const data = await response.json();
-            const models = data.data?.map((m: any) => m.id) || [];
-
-            setFetchedModels(prev => ({ ...prev, [providerId]: models }));
-
         } catch (error) {
             console.error("Error fetching models:", error);
-            // Fallback models if fetch fails
             setFetchedModels(prev => ({ ...prev, [providerId]: ["gpt-4o", "gpt-3.5-turbo", "claude-3-opus", "qwen2-vl-2b-instruct"] }));
         } finally {
             setIsLoadingModels(null);

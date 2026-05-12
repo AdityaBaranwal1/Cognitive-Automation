@@ -1,0 +1,114 @@
+{
+    "id": "fixture-workflow-v1",
+    "name": "v1 Fixture: all step types",
+    "description": "Snapshot of v1 localStorage shape — covers every step type at least once for migrator round-trip testing.",
+    "trigger": {
+        "type": "hotkey",
+        "key": "F8",
+        "emergencyStopKey": "F9",
+        "enabled": true
+    },
+    "steps": [
+        {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "type": "capture_region",
+            "name": "Capture invoice",
+            "config": {
+                "mode": "fixed",
+                "x": 100,
+                "y": 100,
+                "width": 800,
+                "height": 600,
+                "monitorIndex": 0
+            }
+        },
+        {
+            "id": "00000000-0000-0000-0000-000000000002",
+            "type": "capture_screen",
+            "name": "Capture full screen",
+            "config": {
+                "mode": "fullscreen",
+                "monitorIndex": 0
+            }
+        },
+        {
+            "id": "00000000-0000-0000-0000-000000000003",
+            "type": "ai_process",
+            "name": "Extract invoice fields",
+            "config": {
+                "providerId": "lm-studio",
+                "model": "qwen2-vl-2b-instruct",
+                "prompt": "Extract the total from this invoice: {{prev}}",
+                "systemPromptId": "default",
+                "temperature": 0.2,
+                "maxTokens": 512,
+                "stitchImages": false
+            }
+        },
+        {
+            "id": "00000000-0000-0000-0000-000000000004",
+            "type": "keypress",
+            "name": "Tab to next field",
+            "config": {
+                "key": "Tab",
+                "modifiers": []
+            }
+        },
+        {
+            "id": "00000000-0000-0000-0000-000000000005",
+            "type": "wait",
+            "name": "Wait for page load",
+            "config": {
+                "durationMs": 1000
+            }
+        },
+        {
+            "id": "00000000-0000-0000-0000-000000000006",
+            "type": "loop",
+            "name": "Loop 3x",
+            "config": {
+                "iterations": 3,
+                "children": [
+                    {
+                        "id": "00000000-0000-0000-0000-000000000007",
+                        "type": "keypress",
+                        "config": {
+                            "key": "PageDown",
+                            "modifiers": []
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "id": "00000000-0000-0000-0000-000000000008",
+            "type": "await_input",
+            "name": "Dispatch on user key",
+            "config": {
+                "timeout": 0,
+                "keymap": [
+                    {
+                        "key": "F6",
+                        "action": "continue",
+                        "label": "Done"
+                    },
+                    {
+                        "key": "F7",
+                        "action": "break",
+                        "label": "Cancel"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "00000000-0000-0000-0000-000000000009",
+            "type": "action_notification",
+            "name": "Copy result",
+            "config": {
+                "title": "Copy to Clipboard"
+            }
+        }
+    ],
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000
+}
