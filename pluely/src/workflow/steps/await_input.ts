@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { ReactNode } from "react";
 import { createElement, Fragment } from "react";
 import { Pause } from "lucide-react";
@@ -5,11 +6,31 @@ import { registerStep } from "../core/registry";
 import { registerStepUI } from "../ui/registry-ui";
 import type { AwaitInputStepConfig, AwaitInputKeyAction } from "@/types";
 
+const AwaitInputKeyActionSchema = z
+    .object({
+        key: z.string().min(1),
+        action: z.enum(["run_workflow", "keypress", "continue", "break"]),
+        workflowId: z.string().optional(),
+        keypressConfig: z
+            .object({ key: z.string(), modifiers: z.array(z.string()).optional() })
+            .optional(),
+        label: z.string().optional(),
+    })
+    .passthrough();
+
+const AwaitInputConfigSchema = z
+    .object({
+        timeout: z.number().int().min(0).optional(),
+        keymap: z.array(AwaitInputKeyActionSchema).min(1),
+    })
+    .passthrough();
+
 registerStep<AwaitInputStepConfig>({
     type: "await_input",
     label: "Await Input",
     category: "flow",
     sideEffects: ["hotkey"],
+    configSchema: AwaitInputConfigSchema,
     defaultConfig: () => ({
         timeout: 0,
         keymap: [{ key: "F6", action: "continue", label: "Done" }],

@@ -11,6 +11,7 @@
  * useWorkflowRunner / useCaptureStep.
  */
 
+import type { ZodTypeAny } from "zod";
 import type { WorkflowStep, StepType } from "@/types";
 
 export type StepCategory = "capture" | "input" | "ai" | "flow" | "data" | "action";
@@ -29,6 +30,13 @@ export interface StepDefinition<C = unknown> {
     label: string;
     category: StepCategory;
     sideEffects: SideEffect[];
+    /**
+     * Runtime-only Zod schema for the step's config. NEVER persisted; used at
+     * save time (and in Phase 2b at execute time) to validate user-supplied data.
+     * Optional during Phase 2a's rollout — steps without a schema bypass
+     * validation today and gain it incrementally as schemas are authored.
+     */
+    configSchema?: ZodTypeAny;
     defaultConfig: () => C;
     /** Single-line plain-string summary for logs / headers / graph node labels. */
     summary: (config: C) => string;
@@ -64,6 +72,34 @@ export function getStepSummary(step: WorkflowStep): string {
     } catch {
         return def.label;
     }
+}
+
+export type StepValidationResult =
+    | { ok: true }
+    | { ok: false; errors: string[] };
+
+/**
+ * Validate a step's `config` against its registered Zod schema.
+ *
+ * Returns `{ ok: true }` for steps whose registry entry has no `configSchema`
+ * yet (Phase 2a's rollout is incremental — schemas are added per step).
+ * Returns `{ ok: true }` for unknown step types so this never blocks a
+ * round-trip through the migrator.
+ */
+export function validateStepConfig(
+    type: StepType,
+    config: unknown,
+): StepValidationResult {
+    const def = REGISTRY.get(type);
+    if (!def?.configSchema) return { ok: true };
+    const result = def.configSchema.safeParse(config);
+    if (result.success) return { ok: true };
+    return {
+        ok: false,
+        errors: result.error.issues.map(
+            (i) => `${i.path.join(".") || "<root>"}: ${i.message}`,
+        ),
+    };
 }
 
 export function stepsByCategory(): Record<StepCategory, StepDefinition[]> {
