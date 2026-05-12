@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import v1 from "./workflow-v1.json";
 
 describe("workflow-v1 fixture", () => {
-    it("loads as JSON and covers every v1 step type", () => {
+    it("loads as JSON and covers every v1 step type (including deprecated ones)", () => {
         expect(v1).toBeTruthy();
         expect(Array.isArray(v1.steps)).toBe(true);
         const types = new Set(v1.steps.map((s) => s.type));
@@ -15,6 +15,9 @@ describe("workflow-v1 fixture", () => {
             "loop",
             "await_input",
             "action_notification",
+            // Deprecated v1 types — must round-trip through the migrator in Phase 1
+            "system_action",
+            "delay",
         ]) {
             expect(types.has(required)).toBe(true);
         }

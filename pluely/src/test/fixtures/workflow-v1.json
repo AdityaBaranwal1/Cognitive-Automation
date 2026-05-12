@@ -107,6 +107,23 @@
             "config": {
                 "title": "Copy to Clipboard"
             }
+        },
+        {
+            "id": "00000000-0000-0000-0000-00000000000a",
+            "type": "system_action",
+            "name": "Legacy system action (deprecated; migrates to action_notification)",
+            "config": {
+                "action": "copy_to_clipboard",
+                "value": "{{prev}}"
+            }
+        },
+        {
+            "id": "00000000-0000-0000-0000-00000000000b",
+            "type": "delay",
+            "name": "Legacy delay (deprecated; migrates to wait)",
+            "config": {
+                "durationMs": 750
+            }
         }
     ],
     "createdAt": 1700000000000,
