@@ -55,11 +55,14 @@ const WorkflowEditor = () => {
 
     const handleAddStep = (type: WorkflowStep["type"]) => {
         if (!selectedWorkflow) return;
-        const newStep: WorkflowStep = {
+        // Discriminated union: TS can't widen across the type variable, so
+        // cast to the union at the construction site. Registry guarantees the
+        // (type, config) pairing is sound.
+        const newStep = {
             id: crypto.randomUUID(),
             type,
-            config: getStepDefaults(type) as WorkflowStep["config"],
-        };
+            config: getStepDefaults(type),
+        } as WorkflowStep;
         updateWorkflow({
             ...selectedWorkflow,
             steps: [...selectedWorkflow.steps, newStep],
@@ -681,7 +684,7 @@ const WorkflowEditor = () => {
                                                                             value={keyAction.action}
                                                                             onValueChange={(val) => {
                                                                                 const newKeymap = [...(step.config.keymap || [])];
-                                                                                newKeymap[idx] = { ...newKeymap[idx], action: val };
+                                                                                newKeymap[idx] = { ...newKeymap[idx], action: val as "keypress" | "run_workflow" | "continue" | "break" };
                                                                                 handleUpdateStep(step.id, { keymap: newKeymap });
                                                                             }}
                                                                         >

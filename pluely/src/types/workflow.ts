@@ -8,7 +8,34 @@ export interface WorkflowTrigger {
     enabled: boolean;
 }
 
-export type StepType = "capture_screen" | "ai_process" | "system_action" | "delay" | "capture_region" | "action_notification" | "keypress" | "wait" | "loop" | "await_input";
+export type StepType =
+    | "capture_screen"
+    | "ai_process"
+    | "system_action"
+    | "delay"
+    | "capture_region"
+    | "action_notification"
+    | "keypress"
+    | "wait"
+    | "loop"
+    | "await_input"
+    // AST control-flow types declared in Phase 1 (executors land in Phases 2b/5/7).
+    | "if"
+    | "foreach"
+    | "try_catch"
+    | "sub_workflow";
+
+/**
+ * Reliability policy attached to any step.
+ * Lands in Phase 5 (RunController). Declared here so the StepBase envelope
+ * does not need to change again.
+ */
+export interface StepPolicy {
+    timeoutMs?: number;
+    retry?: { max: number; backoffMs: number; on?: ("network" | "timeout" | "validation" | "*")[] };
+    continueOnError?: boolean;
+    onError?: WorkflowStep[];
+}
 
 export interface BaseStepConfig {
     [key: string]: any;
@@ -56,9 +83,42 @@ export interface WaitStepConfig extends BaseStepConfig {
 }
 
 // Phase 4: Loop step configuration
+// v1 used `children`; v2 uses `body`. Migrator copies children -> body and the
+// runner reads `body ?? children` for back-compat. Mark `children` deprecated;
+// remove once all live workflows have re-saved.
 export interface LoopStepConfig extends BaseStepConfig {
-    iterations: number;    // Number of times to repeat (1-100)
-    children: WorkflowStep[];  // Nested steps to execute in each iteration
+    iterations: number;       // Number of times to repeat (1-100)
+    body?: WorkflowStep[];    // Phase 1 (v2): nested steps to execute in each iteration
+    /** @deprecated v1 field — migrator renames to `body`. */
+    children?: WorkflowStep[];
+}
+
+// AST control-flow configs declared in Phase 1.
+// Executors will land later (if/foreach in Phase 7c, try_catch/sub_workflow per plan).
+
+export interface IfStepConfig extends BaseStepConfig {
+    /** JEXL expression evaluated against artifact bindings — no moustaches. */
+    condition: string;
+    then: WorkflowStep[];
+    else?: WorkflowStep[];
+}
+
+export interface ForeachStepConfig extends BaseStepConfig {
+    /** Token reference (e.g. "steps.extract.rows" or "vars.csv") resolved at runtime. */
+    source: string;
+    body: WorkflowStep[];
+}
+
+export interface TryCatchStepConfig extends BaseStepConfig {
+    body: WorkflowStep[];
+    catch: WorkflowStep[];
+    finally?: WorkflowStep[];
+}
+
+export interface SubWorkflowStepConfig extends BaseStepConfig {
+    workflowId: string;
+    /** Optional input bindings (variable name -> token reference). */
+    inputs?: Record<string, string>;
 }
 
 // Phase 6B: Await Input key action mapping
@@ -82,18 +142,53 @@ export interface ActionNotificationConfig extends BaseStepConfig {
     message?: string;
 }
 
-export interface WorkflowStep {
+/**
+ * Common envelope for every step. Discriminated union below pairs `type` to
+ * its `config` type. `key` is an optional user-facing alias used by the
+ * expression bindings; if absent, `id` (UUID) is used.
+ */
+export interface StepBase {
     id: string;
-    type: StepType;
+    /**
+     * Optional user-friendly alias for expressions: `^[a-zA-Z_][a-zA-Z0-9_]*$`.
+     * When present, `steps.<key>.<jsonpath>` resolves against this binding;
+     * otherwise the UUID is used.
+     */
+    key?: string;
     name?: string;
-    config: CaptureStepConfig | AIStepConfig | SystemActionConfig | DelayStepConfig | KeypressStepConfig | WaitStepConfig | LoopStepConfig | AwaitInputStepConfig | ActionNotificationConfig;
+    policy?: StepPolicy;
 }
+
+export type WorkflowStep =
+    | (StepBase & { type: "capture_region"; config: CaptureStepConfig })
+    | (StepBase & { type: "capture_screen"; config: CaptureStepConfig })
+    | (StepBase & { type: "ai_process"; config: AIStepConfig })
+    | (StepBase & { type: "system_action"; config: SystemActionConfig })
+    | (StepBase & { type: "delay"; config: DelayStepConfig })
+    | (StepBase & { type: "action_notification"; config: ActionNotificationConfig })
+    | (StepBase & { type: "keypress"; config: KeypressStepConfig })
+    | (StepBase & { type: "wait"; config: WaitStepConfig })
+    | (StepBase & { type: "loop"; config: LoopStepConfig })
+    | (StepBase & { type: "await_input"; config: AwaitInputStepConfig })
+    | (StepBase & { type: "if"; config: IfStepConfig })
+    | (StepBase & { type: "foreach"; config: ForeachStepConfig })
+    | (StepBase & { type: "try_catch"; config: TryCatchStepConfig })
+    | (StepBase & { type: "sub_workflow"; config: SubWorkflowStepConfig });
+
+export const WORKFLOW_SCHEMA_VERSION = 2 as const;
 
 export interface Workflow {
     id: string;
+    schemaVersion?: typeof WORKFLOW_SCHEMA_VERSION;
     name: string;
     description?: string;
     trigger: WorkflowTrigger;
+    /**
+     * Phase 7c-bis: domains that http_request steps in this workflow may reach.
+     * Enforced server-side (Rust) by `workflow_http_request`. An empty or
+     * undefined list means no http_request is permitted.
+     */
+    allowedHosts?: string[];
     steps: WorkflowStep[];
     createdAt: number;
     updatedAt: number;

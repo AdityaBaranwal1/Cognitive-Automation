@@ -3,6 +3,7 @@ import { safeLocalStorage } from "@/lib";
 import { persistAndSync } from "@/lib/storage";
 import { useTauriEvent } from "@/lib/tauri/use-event";
 import { useWorkflowShortcutSync } from "@/lib/shortcuts/workflow-shortcuts";
+import { migrateAll } from "@/lib/workflow/migrations";
 import { IWorkflowContextType, Workflow, WorkflowExecution } from "@/types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -24,12 +25,13 @@ export const WorkflowProvider = ({ children }: { children: ReactNode }) => {
     // Workflow Execution Tracking (for progress indicators)
     const [workflowExecution, setWorkflowExecution] = useState<WorkflowExecution | null>(null);
 
-    // Load workflows from localStorage on mount
+    // Load workflows from localStorage on mount — runs the v1->v2 migrator
+    // lazily on read so existing persisted data survives the IR change.
     useEffect(() => {
         const savedWorkflows = safeLocalStorage.getItem(STORAGE_KEYS.WORKFLOWS);
         if (savedWorkflows) {
             try {
-                setWorkflows(JSON.parse(savedWorkflows));
+                setWorkflows(migrateAll(JSON.parse(savedWorkflows)));
             } catch (e) {
                 console.error("Failed to parse workflows", e);
             }
@@ -43,7 +45,7 @@ export const WorkflowProvider = ({ children }: { children: ReactNode }) => {
             const savedWorkflows = safeLocalStorage.getItem(STORAGE_KEYS.WORKFLOWS);
             if (savedWorkflows) {
                 try {
-                    setWorkflows(JSON.parse(savedWorkflows));
+                    setWorkflows(migrateAll(JSON.parse(savedWorkflows)));
                 } catch (e) {
                     console.error("Failed to parse workflows from data-updated event", e);
                 }

@@ -81,7 +81,7 @@ function nodesToSteps(nodes: Node<WorkflowNodeData>[], edges: Edge[]): WorkflowS
                 name: node.data.name,
                 type: node.data.type,
                 config: node.data.config,
-            });
+            } as WorkflowStep);
         }
         currentId = nextMap.get(currentId);
     }
