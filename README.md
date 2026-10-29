@@ -6,8 +6,10 @@
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-orange)](https://tauri.app/)
 [![Rust](https://img.shields.io/badge/Backend-Rust-b7410e)](https://www.rust-lang.org/)
 [![React + TS](https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript-blue)](https://react.dev/)
-[![Tests](https://img.shields.io/badge/vitest-21%2F21%20passing-brightgreen)](pluely/src/workflow/__tests__)
+[![Tests](https://img.shields.io/badge/vitest-26%2F26%20passing-brightgreen)](pluely/src/workflow/__tests__)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](pluely/LICENSE)
+
+![Auto-Vision workflow editor, graph view](pluely/images/workflow-graph.png)
 
 Auto-Vision started as a fork of the open-source [Pluely](https://github.com/iamsrikanthnani/pluely) overlay assistant (a Cluely alternative). Since then it has been rebuilt into a workflow automation engine: a Rust input-injection layer, a visual node editor, a typed workflow AST with schema migrations, a multi-provider LLM layer with OS-keychain secrets, and human-in-the-loop hotkey dispatch.
 
@@ -33,6 +35,14 @@ A **workflow** is a sequence of steps bound to a global hotkey. Press the hotkey
 | `loop` | Repeat a body of steps (e.g. capture → Page Down → wait, N times) |
 | `await_input` | **Human-in-the-loop dispatch** — pause and map keys to actions, including running another workflow |
 | `action_notification` | Output result: type it out, copy to clipboard, or show a notification |
+
+| Tree view: steps inside a loop | Model profiles and capability testing |
+|---|---|
+| ![Workflow tree view](pluely/images/workflow-tree.png) | ![Model profiles](pluely/images/model-profiles.png) |
+
+The always-on-top overlay bar (system audio, mic, chat, screenshot, attachments, system prompts):
+
+![Overlay bar](pluely/images/overlay.png)
 
 Every workflow has a **trigger hotkey** and a separate **emergency-stop hotkey** that halts execution mid-stream (per-chunk, milliseconds — down from 30 s+ before the streaming-loop fix).
 
@@ -68,7 +78,7 @@ Every workflow has a **trigger hotkey** and a separate **emergency-stop hotkey**
 
 ## Engineering
 
-- **Tests:** Vitest suite covering the migrator, step registry/schemas, and v1 fixtures for every legacy step type — `21/21` passing
+- **Tests:** Vitest suite covering the migrator, loop-body access, step registry/schemas, and v1 fixtures for every legacy step type — `26/26` passing
 - **Build gates:** `cargo check`, `cargo test`, `tsc --noEmit`, and `npm test` before every commit
 - **Governance:** [`pluely/CLAUDE.md`](pluely/CLAUDE.md) enforces a 250-line file limit, Tauri-v2-only APIs, and IPC-push (no `storage` events) for cross-window state, with a tracked tech-debt ledger
 - **Refactors:** `useWorkflowRunner` split from 588 → 204 lines into capture/AI/state hooks; six duplicated provider-resolution code paths consolidated into one resolver; eight hand-rolled event-listener cleanups replaced with `useTauriEvent`
