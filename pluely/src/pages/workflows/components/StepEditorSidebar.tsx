@@ -12,6 +12,7 @@ import { getSuggestedProfileForModel } from '@/config';
 import { getStepLabel } from '@/workflow/core/registry';
 import { getStepIcon } from '@/workflow/ui/registry-ui';
 import { OUTPUT_ACTION_OPTIONS } from '@/lib/workflow/output-actions';
+import { getLoopBody } from '@/lib/workflow/loop-body';
 
 interface StepEditorSidebarProps {
     step: WorkflowStep;
@@ -291,7 +292,7 @@ export function StepEditorSidebar({
                                 </SelectContent>
                             </Select>
                             <p className="text-xs text-muted-foreground">
-                                Loop children: {((step.config as LoopStepConfig).children || []).length} steps
+                                Loop children: {getLoopBody(step.config).length} steps
                             </p>
                         </div>
                     )}

@@ -3,6 +3,7 @@ import { useConfig, useWorkflow, useSystemPrompts } from "@/contexts";
 import { Workflow, WorkflowStep } from "@/types";
 import { getStepDefaults, getStepLabel, allSteps } from "@/workflow/core/registry";
 import { OUTPUT_ACTION_OPTIONS } from "@/lib/workflow/output-actions";
+import { getLoopBody } from "@/lib/workflow/loop-body";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -127,8 +128,8 @@ const WorkflowEditor = () => {
 
             // Find the loop step and update the child's config
             const loopStep = selectedWorkflow.steps.find(s => s.id === loopStepId);
-            if (loopStep && loopStep.config.children) {
-                const newChildren = [...loopStep.config.children];
+            if (loopStep && getLoopBody(loopStep.config).length > 0) {
+                const newChildren: any[] = [...getLoopBody(loopStep.config)];
                 newChildren[childIdx] = {
                     ...newChildren[childIdx],
                     config: {
@@ -141,7 +142,7 @@ const WorkflowEditor = () => {
                         mode: "area"
                     }
                 };
-                handleUpdateStep(loopStepId, { children: newChildren });
+                handleUpdateStep(loopStepId, { body: newChildren });
             }
 
             await invoke("open_dashboard");
@@ -560,10 +561,10 @@ const WorkflowEditor = () => {
                                                                 </Select>
                                                             </div>
                                                             <div className="border-l-2 border-dashed border-primary/30 pl-4 ml-2 space-y-2">
-                                                                <p className="text-xs font-medium">Loop Children: {(step.config.children || []).length} steps</p>
+                                                                <p className="text-xs font-medium">Loop Children: {getLoopBody(step.config).length} steps</p>
 
                                                                 {/* List existing children */}
-                                                                {(step.config.children || []).map((child: any, childIdx: number) => (
+                                                                {getLoopBody(step.config).map((child: any, childIdx: number) => (
                                                                     <div key={child.id} className="flex items-center gap-2 text-xs bg-muted/50 p-2 rounded">
                                                                         <span className="text-muted-foreground">{childIdx + 1}.</span>
                                                                         <span className="flex-1">
@@ -596,8 +597,8 @@ const WorkflowEditor = () => {
                                                                             variant="ghost"
                                                                             className="h-5 w-5 text-destructive"
                                                                             onClick={() => {
-                                                                                const newChildren = (step.config.children || []).filter((_: any, i: number) => i !== childIdx);
-                                                                                handleUpdateStep(step.id, { children: newChildren });
+                                                                                const newChildren = getLoopBody(step.config).filter((_: any, i: number) => i !== childIdx);
+                                                                                handleUpdateStep(step.id, { body: newChildren });
                                                                             }}
                                                                         >
                                                                             <Trash2 className="h-3 w-3" />
@@ -618,7 +619,7 @@ const WorkflowEditor = () => {
                                                                                 name: "Loop Capture",
                                                                                 config: { x: 100, y: 100, width: 400, height: 300, mode: "area" }
                                                                             };
-                                                                            handleUpdateStep(step.id, { children: [...(step.config.children || []), newChild] });
+                                                                            handleUpdateStep(step.id, { body: [...getLoopBody(step.config), newChild] });
                                                                         }}
                                                                     >
                                                                         + Capture
@@ -634,7 +635,7 @@ const WorkflowEditor = () => {
                                                                                 name: "Loop Keypress",
                                                                                 config: { key: "PageDown", modifiers: [] }
                                                                             };
-                                                                            handleUpdateStep(step.id, { children: [...(step.config.children || []), newChild] });
+                                                                            handleUpdateStep(step.id, { body: [...getLoopBody(step.config), newChild] });
                                                                         }}
                                                                     >
                                                                         + PageDown
@@ -650,7 +651,7 @@ const WorkflowEditor = () => {
                                                                                 name: "Loop Wait",
                                                                                 config: { durationMs: 500 }
                                                                             };
-                                                                            handleUpdateStep(step.id, { children: [...(step.config.children || []), newChild] });
+                                                                            handleUpdateStep(step.id, { body: [...getLoopBody(step.config), newChild] });
                                                                         }}
                                                                     >
                                                                         + Wait 500ms
